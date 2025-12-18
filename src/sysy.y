@@ -1,7 +1,7 @@
 %code requires {
   #include <memory>
   #include <string>
-  #include "../include/sysy/ast.h"
+  #include "sysy/ast.h"
 }
 
 %{
@@ -9,7 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include "../include/sysy/ast.h"
+#include "sysy/ast.h"
 
 // 声明 lexer 函数和错误处理函数
 int yylex();

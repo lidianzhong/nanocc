@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-#include "../include/sysy/ast.h"
+#include "sysy/ast.h"
 
 using namespace std;
 
