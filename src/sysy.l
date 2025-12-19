@@ -4,6 +4,7 @@
 
 %{
 
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 
@@ -15,8 +16,11 @@ using namespace std;
 
 %}
 
+/* 块注释 */
+%x BLOCK_COMMENT
+
 /* 空白符和注释 */
-WhiteSpace    [ \t\n\r]*
+WhiteSpace    [ \t\n\r]+
 LineComment   "//".*
 
 /* 标识符 */
@@ -31,6 +35,15 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 
 {WhiteSpace}    { /* 忽略, 不做任何操作 */ }
 {LineComment}   { /* 忽略, 不做任何操作 */ }
+
+"/*"            { BEGIN(BLOCK_COMMENT); }
+<BLOCK_COMMENT>"*/"   { BEGIN(INITIAL); }
+<BLOCK_COMMENT>\n     { /* 忽略 */ }
+<BLOCK_COMMENT>.      { /* 忽略 */ }
+<BLOCK_COMMENT><<EOF>> {
+                  fprintf(stderr, "error: unterminated block comment\n");
+                  exit(1);
+                }
 
 "int"           { return INT; }
 "return"        { return RETURN; }
