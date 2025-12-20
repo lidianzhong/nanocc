@@ -10,7 +10,7 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif  // __cplusplus
+#endif // __cplusplus
 
 ///
 /// Error code of some Koopa functions.
@@ -594,7 +594,7 @@ koopa_error_code_t koopa_generate_raw_to_koopa(const koopa_raw_program_t *raw,
                                                koopa_program_t *program);
 
 #ifdef __cplusplus
-}  // extern "C"
-#endif  // __cplusplus
+} // extern "C"
+#endif // __cplusplus
 
-#endif  // LIBKOOPA_KOOPA_H_
+#endif // LIBKOOPA_KOOPA_H_

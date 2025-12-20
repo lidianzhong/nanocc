@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 project(compiler)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # settings
@@ -33,8 +35,8 @@ find_package(FLEX REQUIRED)
 find_package(BISON REQUIRED)
 
 # generate lexer/parser
-file(GLOB_RECURSE L_SOURCES "src/*.l")
-file(GLOB_RECURSE Y_SOURCES "src/*.y")
+file(GLOB_RECURSE L_SOURCES "src/frontend/*.l")
+file(GLOB_RECURSE Y_SOURCES "src/frontend/*.y")
 if(NOT (L_SOURCES STREQUAL "" AND Y_SOURCES STREQUAL ""))
   string(REGEX REPLACE ".*/(.*)\\.l" "${CMAKE_CURRENT_BINARY_DIR}/\\1.lex${FB_EXT}" L_OUTPUTS "${L_SOURCES}")
   string(REGEX REPLACE ".*/(.*)\\.y" "${CMAKE_CURRENT_BINARY_DIR}/\\1.tab${FB_EXT}" Y_OUTPUTS "${Y_SOURCES}")
@@ -64,3 +66,10 @@ set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES} ${H_SOURCES}
 add_executable(compiler ${SOURCES})
 set_target_properties(compiler PROPERTIES C_STANDARD 11 CXX_STANDARD 17)
 target_link_libraries(compiler koopa pthread dl)
+
+# add clang-format target
+add_custom_target(format
+    COMMAND find ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include -name "*.cpp" -o -name "*.h" -o -name "*.c" | xargs clang-format -i
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Formatting source code"
+)

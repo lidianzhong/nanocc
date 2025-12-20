@@ -7,8 +7,9 @@
 #include <string>
 
 #include "ast.h"
-#include "koopa.h"
 #include "codegen/riscv.h"
+#include "irgen/ir_gen.h"
+#include "koopa.h"
 
 using namespace std;
 
@@ -21,67 +22,48 @@ extern FILE *yyin;
 extern int yyparse(unique_ptr<BaseAST> &ast);
 
 int main(int argc, const char *argv[]) {
-    assert(argc == 5);
-    
-    string mode(argv[1]);    // 模式: -koopa
-    auto input = argv[2];    // 输入文件
-    auto output = argv[4];   // 输出文件
+  assert(argc == 5);
 
-    if (mode != "-koopa" && mode != "-riscv") {
-        // Unsupported mode
-        cerr << "Error: Unsupported mode " << mode << endl;
-        return 1;
-    }
+  string mode(argv[1]);  // 模式: -koopa or -riscv
+  auto input = argv[2];  // 输入文件
+  auto output = argv[4]; // 输出文件
 
-    // 1. 打开输入文件
-    yyin = fopen(input, "r");
-    assert(yyin);
+  if (mode != "-koopa" && mode != "-riscv") {
+    cerr << "Error: Unsupported mode " << mode << endl;
+    return 1;
+  }
 
-    // 2. 解析 AST
-    unique_ptr<BaseAST> ast;
-    auto parse_ret = yyparse(ast);
-    assert(!parse_ret);
+  // 1. 打开输入文件
+  yyin = fopen(input, "r");
+  assert(yyin);
 
-    // 3. 将 DumpIR 的输出抓到字符串中
-    std::ostringstream oss;
-    auto* old_buf = std::cout.rdbuf(oss.rdbuf()); // cout -> oss
-    ast->DumpIR();
-    std::cout.rdbuf(old_buf); // 恢复 oss
+  // 2. 解析 AST
+  unique_ptr<BaseAST> ast;
+  auto parse_ret = yyparse(ast);
+  assert(!parse_ret);
 
-    std::string ir = oss.str();
+  // 3. 生成 IR
+  IRGenerator ir_gen;
+  ir_gen.Visit(ast.get());
+  std::string ir = ir_gen.GetIR();
 
-    if (mode == "-koopa") {
-        FILE *out = fopen(output, "w");
-        assert(out);
-        fprintf(out, "%s", ir.c_str());
-        fclose(out);
-        return 0;
-    }
-
-    const char* str = ir.c_str();
-
-    // 4. 解析字符串 str, 得到 Koopa IR 程序
-    koopa_program_t program;
-    koopa_error_code_t ret = koopa_parse_from_string(str, &program);
-    assert(ret == KOOPA_EC_SUCCESS);  // 确保解析时没有出错
-    // 创建一个 raw program builder, 用来构建 raw program
-    koopa_raw_program_builder_t builder = koopa_new_raw_program_builder();
-    // 将 Koopa IR 程序转换为 raw program
-    koopa_raw_program_t raw = koopa_build_raw_program(builder, program);
-    // 释放 Koopa IR 程序占用的内存
-    koopa_delete_program(program);
-
-    // 处理 raw program
-    if (mode == "-riscv") {
-        freopen(output, "w", stdout);
-        Visit(raw);
-        fclose(stdout);
-    }
-
-    // 处理完成, 释放 raw program builder 占用的内存
-    // 注意, raw program 中所有的指针指向的内存均为 raw program builder 的内存
-    // 所以不要在 raw program 处理完毕之前释放 builder
-    koopa_delete_raw_program_builder(builder);
-
+  if (mode == "-koopa") {
+    FILE *out = fopen(output, "w");
+    assert(out);
+    fprintf(out, "%s", ir.c_str());
+    fclose(out);
     return 0;
+  }
+
+  // 4. 获取 raw program
+  koopa_raw_program_t raw = ir_gen.GetProgram();
+
+  // 处理 raw program
+  if (mode == "-riscv") {
+    freopen(output, "w", stdout);
+    Visit(raw);
+    fclose(stdout);
+  }
+
+  return 0;
 }
