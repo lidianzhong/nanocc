@@ -1,8 +1,9 @@
-#include "codegen/riscv.h"
 #include <cassert>
 #include <iostream>
 #include <map>
 #include <string>
+
+#include "codegen/riscv.h"
 
 // 寄存器分配状态
 // 使用 map 记录每个 Value 对应的寄存器
@@ -128,21 +129,34 @@ void Visit(const koopa_raw_value_t &value) {
     val_regs[value] = rd;
 
     switch (binary.op) {
-    // Equal to
-    case KOOPA_RBO_EQ: {
+    case KOOPA_RBO_NOT_EQ:
+      std::cout << "  xor " << rd << ", " << lhs << ", " << rhs << std::endl;
+      std::cout << "  snez " << rd << ", " << rd << std::endl;
+      break;
+    case KOOPA_RBO_EQ:
       std::cout << "  xor " << rd << ", " << lhs << ", " << rhs << std::endl;
       std::cout << "  seqz " << rd << ", " << rd << std::endl;
       break;
-    }
-    // case KOOPA_RBO_NOT_EQ:
-    //   std::cout << "  xor " << rd << ", " << lhs << ", " << rhs << std::endl;
-    //   std::cout << "  snez " << rd << ", " << rd << std::endl;
-    //   break;
+
+    case KOOPA_RBO_GT:
+      std::cout << "  slt " << rd << ", " << rhs << ", " << lhs << std::endl;
+      break;
+
+    case KOOPA_RBO_LT:
+      std::cout << "  slt " << rd << ", " << lhs << ", " << rhs << std::endl;
+      break;
+    case KOOPA_RBO_GE:
+      std::cout << "  slt " << rd << ", " << lhs << ", " << rhs << std::endl;
+      std::cout << "  seqz " << rd << ", " << rd << std::endl;
+      break;
+    case KOOPA_RBO_LE:
+      std::cout << "  slt " << rd << ", " << rhs << ", " << lhs << std::endl;
+      std::cout << "  seqz " << rd << ", " << rd << std::endl;
+      break;
     case KOOPA_RBO_ADD: {
       std::cout << "  add " << rd << ", " << lhs << ", " << rhs << std::endl;
       break;
     }
-    // Subtraction
     case KOOPA_RBO_SUB: {
       std::cout << "  sub " << rd << ", " << lhs << ", " << rhs << std::endl;
       break;
@@ -151,33 +165,19 @@ void Visit(const koopa_raw_value_t &value) {
       std::cout << "  mul " << rd << ", " << lhs << ", " << rhs << std::endl;
       break;
     }
+    case KOOPA_RBO_DIV:
+      std::cout << "  div " << rd << ", " << lhs << ", " << rhs << std::endl;
+      break;
+    case KOOPA_RBO_MOD:
+      std::cout << "  rem " << rd << ", " << lhs << ", " << rhs << std::endl;
+      break;
+    case KOOPA_RBO_AND:
+      std::cout << "  and " << rd << ", " << lhs << ", " << rhs << std::endl;
+      break;
+    case KOOPA_RBO_OR:
+      std::cout << "  or " << rd << ", " << lhs << ", " << rhs << std::endl;
+      break;
 
-    // case KOOPA_RBO_DIV:
-    //   std::cout << "  div " << rd << ", " << lhs << ", " << rhs << std::endl;
-    //   break;
-    // case KOOPA_RBO_MOD:
-    //   std::cout << "  rem " << rd << ", " << lhs << ", " << rhs << std::endl;
-    //   break;
-    // case KOOPA_RBO_AND:
-    //   std::cout << "  and " << rd << ", " << lhs << ", " << rhs << std::endl;
-    //   break;
-    // case KOOPA_RBO_OR:
-    //   std::cout << "  or " << rd << ", " << lhs << ", " << rhs << std::endl;
-    //   break;
-    // case KOOPA_RBO_LT:
-    //   std::cout << "  slt " << rd << ", " << lhs << ", " << rhs << std::endl;
-    //   break;
-    // case KOOPA_RBO_GT:
-    //   std::cout << "  slt " << rd << ", " << rhs << ", " << lhs << std::endl;
-    //   break;
-    // case KOOPA_RBO_LE:
-    //   std::cout << "  slt " << rd << ", " << rhs << ", " << lhs << std::endl;
-    //   std::cout << "  seqz " << rd << ", " << rd << std::endl;
-    //   break;
-    // case KOOPA_RBO_GE:
-    //   std::cout << "  slt " << rd << ", " << lhs << ", " << rhs << std::endl;
-    //   std::cout << "  seqz " << rd << ", " << rd << std::endl;
-    //   break;
     default:
       std::cerr << "Unsupported binary operation: " << binary.op << std::endl;
       assert(false);

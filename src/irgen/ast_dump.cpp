@@ -32,7 +32,7 @@ void StmtAST::Dump() const {
 
 void ExpAST::Dump() const {
   std::cout << "ExpAST { ";
-  add_exp->Dump();
+  lor_exp->Dump();
   std::cout << " }";
 }
 
@@ -90,6 +90,66 @@ void AddExpAST::Dump() const {
     add.mul_exp->Dump();
   } else {
     throw std::runtime_error("Invalid AddExpAST variant");
+  }
+  std::cout << " }";
+}
+
+void RelExpAST::Dump() const {
+  std::cout << "RelExpAST { ";
+  if (std::holds_alternative<Add>(data)) {
+    std::get<Add>(data).ptr->Dump();
+  } else if (std::holds_alternative<Rel>(data)) {
+    auto &rel = std::get<Rel>(data);
+    rel.rel_exp->Dump();
+    std::cout << ", " << rel.op << ", ";
+    rel.add_exp->Dump();
+  } else {
+    throw std::runtime_error("Invalid RelExpAST variant");
+  }
+  std::cout << " }";
+}
+
+void EqExpAST::Dump() const {
+  std::cout << "EqExpAST { ";
+  if (std::holds_alternative<Rel>(data)) {
+    std::get<Rel>(data).ptr->Dump();
+  } else if (std::holds_alternative<Eq>(data)) {
+    auto &eq = std::get<Eq>(data);
+    eq.eq_exp->Dump();
+    std::cout << ", " << eq.op << ", ";
+    eq.rel_exp->Dump();
+  } else {
+    throw std::runtime_error("Invalid EqExpAST variant");
+  }
+  std::cout << " }";
+}
+
+void LAndExpAST::Dump() const {
+  std::cout << "LAndExpAST { ";
+  if (std::holds_alternative<Eq>(data)) {
+    std::get<Eq>(data).ptr->Dump();
+  } else if (std::holds_alternative<LAnd>(data)) {
+    auto &land = std::get<LAnd>(data);
+    land.land_exp->Dump();
+    std::cout << ", &&, ";
+    land.eq_exp->Dump();
+  } else {
+    throw std::runtime_error("Invalid LAndExpAST variant");
+  }
+  std::cout << " }";
+}
+
+void LOrExpAST::Dump() const {
+  std::cout << "LOrExpAST { ";
+  if (std::holds_alternative<LAnd>(data)) {
+    std::get<LAnd>(data).ptr->Dump();
+  } else if (std::holds_alternative<LOr>(data)) {
+    auto &lor = std::get<LOr>(data);
+    lor.lor_exp->Dump();
+    std::cout << ", ||, ";
+    lor.land_exp->Dump();
+  } else {
+    throw std::runtime_error("Invalid LOrExpAST variant");
   }
   std::cout << " }";
 }

@@ -63,6 +63,14 @@ void IRGenerator::Visit(const BaseAST *ast) {
     VisitMulExp(mulExp);
   } else if (auto addExp = dynamic_cast<const AddExpAST *>(ast)) {
     VisitAddExp(addExp);
+  } else if (auto relExp = dynamic_cast<const RelExpAST *>(ast)) {
+    VisitRelExp(relExp);
+  } else if (auto eqExp = dynamic_cast<const EqExpAST *>(ast)) {
+    VisitEqExp(eqExp);
+  } else if (auto landExp = dynamic_cast<const LAndExpAST *>(ast)) {
+    VisitLAndExp(landExp);
+  } else if (auto lorExp = dynamic_cast<const LOrExpAST *>(ast)) {
+    VisitLOrExp(lorExp);
   } else {
     // Handle unknown AST node types if necessary
     assert(false);
@@ -105,7 +113,7 @@ void IRGenerator::VisitStmt(const StmtAST *ast) {
   buffer << "  ret " << last_val << std::endl;
 }
 
-void IRGenerator::VisitExp(const ExpAST *ast) { Visit(ast->add_exp.get()); }
+void IRGenerator::VisitExp(const ExpAST *ast) { Visit(ast->lor_exp.get()); }
 
 void IRGenerator::VisitPrimaryExp(const PrimaryExpAST *ast) {
   if (std::holds_alternative<PrimaryExpAST::Number>(ast->data)) {
@@ -165,7 +173,7 @@ void IRGenerator::VisitMulExp(const MulExpAST *ast) {
     } else if (op == '/') {
       buffer << "  " << dest << " = div " << left << ", " << right << std::endl;
     } else if (op == '%') {
-      buffer << "  " << dest << " = rem " << left << ", " << right << std::endl;
+      buffer << "  " << dest << " = mod " << left << ", " << right << std::endl;
     }
     last_val = dest;
   }
@@ -190,6 +198,110 @@ void IRGenerator::VisitAddExp(const BaseAST *ast) {
     } else if (op == '-') {
       buffer << "  " << dest << " = sub " << left << ", " << right << std::endl;
     }
+    last_val = dest;
+  }
+}
+
+void IRGenerator::VisitRelExp(const BaseAST *ast) {
+  auto relExpAst = dynamic_cast<const RelExpAST *>(ast);
+  if (std::holds_alternative<RelExpAST::Add>(relExpAst->data)) {
+    auto &add = std::get<RelExpAST::Add>(relExpAst->data);
+    Visit(add.ptr.get());
+  } else {
+    auto &rel = std::get<RelExpAST::Rel>(relExpAst->data);
+    Visit(rel.rel_exp.get());
+    std::string left = last_val;
+    Visit(rel.add_exp.get());
+    std::string right = last_val;
+
+    std::string dest = NewTempReg();
+    std::string op = rel.op;
+    if (op == "<") {
+      buffer << "  " << dest << " = lt " << left << ", " << right << std::endl;
+    } else if (op == "<=") {
+      buffer << "  " << dest << " = le " << left << ", " << right << std::endl;
+    } else if (op == ">") {
+      buffer << "  " << dest << " = gt " << left << ", " << right << std::endl;
+    } else if (op == ">=") {
+      buffer << "  " << dest << " = ge " << left << ", " << right << std::endl;
+    }
+    last_val = dest;
+  }
+}
+
+void IRGenerator::VisitEqExp(const BaseAST *ast) {
+  auto eqExpAst = dynamic_cast<const EqExpAST *>(ast);
+  if (std::holds_alternative<EqExpAST::Rel>(eqExpAst->data)) {
+    auto &rel = std::get<EqExpAST::Rel>(eqExpAst->data);
+    Visit(rel.ptr.get());
+  } else {
+    auto &eq = std::get<EqExpAST::Eq>(eqExpAst->data);
+    Visit(eq.eq_exp.get());
+    std::string left = last_val;
+    Visit(eq.rel_exp.get());
+    std::string right = last_val;
+
+    std::string dest = NewTempReg();
+    std::string op = eq.op;
+    if (op == "==") {
+      buffer << "  " << dest << " = eq " << left << ", " << right << std::endl;
+    } else if (op == "!=") {
+      buffer << "  " << dest << " = ne " << left << ", " << right << std::endl;
+    }
+    last_val = dest;
+  }
+}
+
+void IRGenerator::VisitLAndExp(const BaseAST *ast) {
+  auto landExpAst = dynamic_cast<const LAndExpAST *>(ast);
+  if (std::holds_alternative<LAndExpAST::Eq>(landExpAst->data)) {
+    Visit(std::get<LAndExpAST::Eq>(landExpAst->data).ptr.get());
+  } else {
+    auto &land = std::get<LAndExpAST::LAnd>(landExpAst->data);
+    
+    // 1. 处理左操作数：计算并强制转换为布尔值 (ne %val, 0)
+    Visit(land.land_exp.get());
+    std::string left = last_val;
+    std::string b_left = NewTempReg();
+    buffer << "  " << b_left << " = ne " << left << ", 0" << std::endl;
+
+    // 2. 处理右操作数：计算并强制转换为布尔值
+    Visit(land.eq_exp.get());
+    std::string right = last_val;
+    std::string b_right = NewTempReg();
+    buffer << "  " << b_right << " = ne " << right << ", 0" << std::endl;
+
+    // 3. 执行按位与运算
+    // 此时 1 && 1 = 1, 1 && 0 = 0, 0 && 0 = 0，符合逻辑与预期
+    std::string dest = NewTempReg();
+    buffer << "  " << dest << " = and " << b_left << ", " << b_right << std::endl;
+    last_val = dest;
+  }
+}
+
+void IRGenerator::VisitLOrExp(const BaseAST *ast) {
+  auto lorExpAst = dynamic_cast<const LOrExpAST *>(ast);
+  if (std::holds_alternative<LOrExpAST::LAnd>(lorExpAst->data)) {
+    Visit(std::get<LOrExpAST::LAnd>(lorExpAst->data).ptr.get());
+  } else {
+    auto &lor = std::get<LOrExpAST::LOr>(lorExpAst->data);
+    
+    // 1. 处理左操作数并强制布尔化
+    Visit(lor.lor_exp.get());
+    std::string left = last_val;
+    std::string b_left = NewTempReg();
+    // %b_left = ne %left, 0  (在 Koopa 中，ne x, 0 等价于将 x 转换为 0 或 1)
+    buffer << "  " << b_left << " = ne " << left << ", 0" << std::endl;
+
+    // 2. 处理右操作数并强制布尔化
+    Visit(lor.land_exp.get());
+    std::string right = last_val;
+    std::string b_right = NewTempReg();
+    buffer << "  " << b_right << " = ne " << right << ", 0" << std::endl;
+
+    // 3. 执行按位或，此时操作数保证是 0 或 1
+    std::string dest = NewTempReg();
+    buffer << "  " << dest << " = or " << b_left << ", " << b_right << std::endl;
     last_val = dest;
   }
 }

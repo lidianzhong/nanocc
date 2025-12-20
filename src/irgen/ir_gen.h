@@ -36,4 +36,8 @@ private:
   void VisitNumber(const NumberAST *ast);
   void VisitMulExp(const MulExpAST *ast);
   void VisitAddExp(const BaseAST *ast);
+  void VisitRelExp(const BaseAST *ast);
+  void VisitEqExp(const BaseAST *ast);
+  void VisitLAndExp(const BaseAST *ast);
+  void VisitLOrExp(const BaseAST *ast);
 };
