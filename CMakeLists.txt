@@ -56,8 +56,9 @@ include_directories(${INC_DIR})
 file(GLOB_RECURSE C_SOURCES "src/*.c")
 file(GLOB_RECURSE CXX_SOURCES "src/*.cpp")
 file(GLOB_RECURSE CC_SOURCES "src/*.cc")
-set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES}
-            ${FLEX_Lexer_OUTPUTS} ${BISON_Parser_OUTPUT_SOURCE})
+file(GLOB_RECURSE H_SOURCES "src/*.h")
+set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES} ${H_SOURCES}
+      ${FLEX_Lexer_OUTPUTS} ${BISON_Parser_OUTPUT_SOURCE})
 
 # executable
 add_executable(compiler ${SOURCES})

@@ -8,6 +8,7 @@
 
 #include "ast.h"
 #include "koopa.h"
+#include "codegen/riscv.h"
 
 using namespace std;
 
@@ -26,7 +27,7 @@ int main(int argc, const char *argv[]) {
     auto input = argv[2];    // 输入文件
     auto output = argv[4];   // 输出文件
 
-    if (mode != "-koopa") {
+    if (mode != "-koopa" && mode != "-riscv") {
         // Unsupported mode
         cerr << "Error: Unsupported mode " << mode << endl;
         return 1;
@@ -48,6 +49,15 @@ int main(int argc, const char *argv[]) {
     std::cout.rdbuf(old_buf); // 恢复 oss
 
     std::string ir = oss.str();
+
+    if (mode == "-koopa") {
+        FILE *out = fopen(output, "w");
+        assert(out);
+        fprintf(out, "%s", ir.c_str());
+        fclose(out);
+        return 0;
+    }
+
     const char* str = ir.c_str();
 
     // 4. 解析字符串 str, 得到 Koopa IR 程序
@@ -62,37 +72,10 @@ int main(int argc, const char *argv[]) {
     koopa_delete_program(program);
 
     // 处理 raw program
-    // 使用 for 循环遍历函数列表
-    for (size_t i = 0; i < raw.funcs.len; ++i) {
-
-        // 正常情况下, 列表中的元素就是函数, 我们只不过是在确认这个事实
-        // 当然, 你也可以基于 raw slice 的 kind, 实现一个通用的处理函数
-        assert(raw.funcs.kind == KOOPA_RSIK_FUNCTION);
-
-        // 获取当前函数
-        koopa_raw_function_t func = (koopa_raw_function_t) raw.funcs.buffer[i];
-        for (size_t j = 0; j < func->bbs.len; ++j) {
-            assert(func->bbs.kind == KOOPA_RSIK_BASIC_BLOCK);
-            koopa_raw_basic_block_t bb = (koopa_raw_basic_block_t) func->bbs.buffer[j];
-            // 进一步处理当前基本块
-            for (size_t k = 0; k < bb->insts.len; ++k) {
-                assert(bb->insts.kind == KOOPA_RSIK_VALUE);
-                koopa_raw_value_t value = (koopa_raw_value_t) bb->insts.buffer[k];
-                // 进一步处理当前指令
-                // 示例程序中, 你得到的 value 一定是一条 return 指令
-                assert(value->kind.tag == KOOPA_RVT_RETURN);
-                // 于是我们可以按照处理 return 指令的方式处理这个 value
-                // return 指令中, value 代表返回值
-                koopa_raw_value_t ret_value = value->kind.data.ret.value;
-                // 示例程序中, ret_value 一定是一个 integer
-                assert(ret_value->kind.tag == KOOPA_RVT_INTEGER);
-                // 于是我们可以按照处理 integer 的方式处理 ret_value
-                // integer 中, value 代表整数的数值
-                int32_t int_val = ret_value->kind.data.integer.value;
-                // 示例程序中, 这个数值一定是 0
-                assert(int_val == 0);
-            }
-        }
+    if (mode == "-riscv") {
+        freopen(output, "w", stdout);
+        Visit(raw);
+        fclose(stdout);
     }
 
     // 处理完成, 释放 raw program builder 占用的内存
