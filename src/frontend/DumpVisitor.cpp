@@ -1,14 +1,12 @@
 #include "frontend/DumpVisitor.h"
 #include "frontend/AST.h"
 
-// 内部使用的 RAII 缩进辅助类
+// 用于缩进
 struct IndentGuard {
   int &indent;
   explicit IndentGuard(int &i) : indent(i) { ++indent; }
   ~IndentGuard() { --indent; }
 };
-
-/* ================= 辅助函数 ================= */
 
 void DumpVisitor::print_indent() const {
   for (int i = 0; i < indent_level; ++i)
@@ -19,8 +17,6 @@ void DumpVisitor::print_node(const std::string &name) {
   print_indent();
   std::cout << name << std::endl;
 }
-
-/* ================= 核心实现 ================= */
 
 void DumpVisitor::Visit(CompUnitAST &node) {
   print_node("CompUnitAST");
@@ -94,6 +90,13 @@ void DumpVisitor::Visit(AssignStmtAST &node) {
   IndentGuard _{indent_level};
   if (node.lval)
     node.lval->Accept(*this);
+  if (node.exp)
+    node.exp->Accept(*this);
+}
+
+void DumpVisitor::Visit(ExpStmtAST &node) {
+  print_node("ExpStmtAST");
+  IndentGuard _{indent_level};
   if (node.exp)
     node.exp->Accept(*this);
 }

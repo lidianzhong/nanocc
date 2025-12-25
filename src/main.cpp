@@ -7,7 +7,6 @@
 
 #include "backend/CodeGen.h"
 #include "frontend/AST.h"
-#include "frontend/ConstEvalVisitor.h"
 #include "frontend/DumpVisitor.h"
 #include "frontend/IRGenVisitor.h"
 #include "frontend/SymbolTable.h"
@@ -48,14 +47,8 @@ int main(int argc, const char *argv[]) {
   DumpVisitor dumper;
   ast->Accept(dumper);
 
-  SymbolTable symtab;
-
-  // constant evaluation
-  ConstEvalVisitor cev(symtab);
-  ast->Accept(cev);
-
   // AST -> Koopa IR
-  IRGenVisitor irgen(symtab);
+  IRGenVisitor irgen;
   ast->Accept(irgen);
 
   // Code generation

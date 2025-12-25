@@ -24,8 +24,9 @@ void IRBuilder::CreateBasicBlock(const std::string &label) {
   buffer_ << "%" << label << ":" << std::endl;
 }
 
-std::string IRBuilder::CreateAlloca(const std::string &type) {
-  std::string alloc_reg = NewTempReg_();
+std::string IRBuilder::CreateAlloca(const std::string &type,
+                                    const std::string &var_name) {
+  std::string alloc_reg = NewTempReg_(var_name);
   buffer_ << "  " << alloc_reg << " = alloc " << type << std::endl;
   return alloc_reg;
 }
@@ -129,6 +130,11 @@ void IRBuilder::CreateReturn(const std::string &value) {
   }
 }
 
-std::string IRBuilder::NewTempReg_() {
-  return "%" + std::to_string(temp_reg_id_++);
+std::string IRBuilder::NewTempReg_(const std::string &var_name) {
+  if (!var_name.empty()) {
+    int &counter = var_reg_counters_[var_name];
+    return "@" + var_name + "_" + std::to_string(++counter);
+  } else {
+    return "%" + std::to_string(temp_reg_id_++);
+  }
 }

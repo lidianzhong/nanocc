@@ -45,7 +45,7 @@ using namespace std;
 // 非终结符的类型定义
 %type <ast_val> FuncDef Block BlockItem Decl ConstDecl VarDecl
 %type <ast_val> ConstDef VarDef ConstInitVal InitVal
-%type <ast_val> Stmt LVal Exp PrimaryExp Number UnaryExp
+%type <ast_val> Stmt ExpStmt LVal Exp PrimaryExp Number UnaryExp
 %type <ast_val> MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <str_val> BType FuncType UnaryOp
 %type <ast_list> ConstDefList VarDefList BlockItemList
@@ -198,17 +198,38 @@ BlockItem
   | Stmt { $$ = $1; }
   ;
 
-// Stmt ::= LVal "=" Exp ";" | "return" Exp ";"
+// Stmt ::= LVal "=" Exp ";" | [Exp] ";" | Block | "return" [Exp] ";"
 Stmt
   : LVal '=' Exp ';' {
     auto ast = new AssignStmtAST();
-    ast->lval = unique_ptr<BaseAST>($1);
+    ast->lval = unique_ptr<LValAST>(static_cast<LValAST*>($1));
     ast->exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
+  | ExpStmt ';' { $$ = $1; }
+  | Block { $$ = $1; }
   | RETURN Exp ';' {
     auto ast = new ReturnStmtAST();
     ast->exp = unique_ptr<BaseAST>($2);
+    $$ = ast;
+  }
+  | RETURN ';' {
+    auto ast = new ReturnStmtAST();
+    ast->exp = nullptr;
+    $$ = ast;
+  }
+  ;
+
+// ExpStmt ::= Exp | /* empty */
+ExpStmt
+  : Exp {
+    auto ast = new ExpStmtAST();
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | /* empty */ {
+    auto ast = new ExpStmtAST();
+    ast->exp = nullptr;
     $$ = ast;
   }
   ;

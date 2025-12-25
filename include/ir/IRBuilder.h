@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include "koopa.h"
 
@@ -17,7 +18,8 @@ public:
   void EndFunction();
   void CreateBasicBlock(const std::string &label = "entry");
 
-  std::string CreateAlloca(const std::string &type = "i32");
+  std::string CreateAlloca(const std::string &type = "i32",
+                           const std::string &var_name = "");
   std::string CreateLoad(const std::string &alloc);
   void CreateStore(const std::string &value, const std::string &alloc);
 
@@ -27,9 +29,10 @@ public:
   std::string CreateNumber(int value);
   void CreateReturn(const std::string &value = "");
 
-  std::string NewTempReg_();
+  std::string NewTempReg_(const std::string &var_name = "");
 
 public:
   std::stringstream buffer_;
   int temp_reg_id_ = 0;
+  std::unordered_map<std::string, int> var_reg_counters_;
 };

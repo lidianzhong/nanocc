@@ -12,7 +12,7 @@
 
 class IRGenVisitor : public ASTVisitor {
 public:
-  explicit IRGenVisitor(SymbolTable &symtab);
+  explicit IRGenVisitor();
 
   // 获取 IR 文本（用于 -koopa 模式）
   std::string GetIR() const;
@@ -28,6 +28,7 @@ public:
   void Visit(VarDeclAST &node) override;
   void Visit(VarDefAST &node) override;
   void Visit(AssignStmtAST &node) override;
+  void Visit(ExpStmtAST &node) override;
   void Visit(ReturnStmtAST &node) override;
   void Visit(LValAST &node) override;
   void Visit(NumberAST &node) override;
@@ -35,9 +36,10 @@ public:
   void Visit(BinaryExpAST &node) override;
 
 private:
-  SymbolTable &symtab_;
+  SymbolTable symtab_;
   std::unique_ptr<IRBuilder> builder_;
-  std::string last_val_;
+  std::variant<std::monostate, int32_t, std::string>
+      last_val_; // 要不为空，要不为常量值，要不为偏移值
 
   void VisitCompUnit_(const CompUnitAST *ast);
   void VisitFuncDef_(const FuncDefAST *ast);
@@ -47,6 +49,7 @@ private:
   void VisitVarDecl_(const VarDeclAST *ast);
   void VisitVarDef_(const VarDefAST *ast);
   void VisitAssignStmt_(const AssignStmtAST *ast);
+  void VisitExpStmt_(const ExpStmtAST *ast);
   void VisitReturnStmt_(const ReturnStmtAST *ast);
   void VisitLVal_(const LValAST *ast);
   void VisitNumber_(const NumberAST *ast);

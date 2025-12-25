@@ -87,15 +87,22 @@ public:
 /// 赋值语句: LVal '=' Exp ';'
 class AssignStmtAST : public BaseAST {
 public:
-  std::unique_ptr<BaseAST> lval;
+  std::unique_ptr<LValAST> lval;
   std::unique_ptr<BaseAST> exp;
   void Accept(ASTVisitor &visitor) override;
 };
 
-/// 返回语句: "return Exp ";"
+/// 表达式语句: [Exp] ";"
+class ExpStmtAST : public BaseAST {
+public:
+  std::unique_ptr<BaseAST> exp; // 可能为空
+  void Accept(ASTVisitor &visitor) override;
+};
+
+/// 返回语句: "return [Exp] ";"
 class ReturnStmtAST : public BaseAST {
 public:
-  std::unique_ptr<BaseAST> exp;
+  std::unique_ptr<BaseAST> exp; // 可能为空
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -143,6 +150,7 @@ inline void ConstDefAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void VarDeclAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void VarDefAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void AssignStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void ExpStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ReturnStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void LValAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void NumberAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
