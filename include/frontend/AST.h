@@ -1,13 +1,11 @@
 #pragma once
 
+#include "ASTVisitor.h"
+
 #include <cstdint>
-#include <iostream>
 #include <memory>
 #include <string>
-#include <variant>
 #include <vector>
-
-#include "ASTVisitor.h"
 
 /// AST 基类
 class BaseAST {
@@ -99,6 +97,15 @@ public:
   void Accept(ASTVisitor &visitor) override;
 };
 
+/// 条件判断语句: "if" "(" Exp ")" Stmt ["else" Stmt]
+class IfStmtAST : public BaseAST {
+public:
+  std::unique_ptr<BaseAST> exp;
+  std::unique_ptr<BaseAST> then_stmt;
+  std::unique_ptr<BaseAST> else_stmt; // 可能为空
+  void Accept(ASTVisitor &visitor) override;
+};
+
 /// 返回语句: "return [Exp] ";"
 class ReturnStmtAST : public BaseAST {
 public:
@@ -151,6 +158,7 @@ inline void VarDeclAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void VarDefAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void AssignStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ExpStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void IfStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ReturnStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void LValAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void NumberAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }

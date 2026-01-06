@@ -1,10 +1,10 @@
 #pragma once
 
-#include <cstddef>
-#include <unordered_map>
-
 #include "koopa.h"
+
+#include <cstddef>
 #include <iostream>
+#include <unordered_map>
 
 class FrameInfo {
 public:

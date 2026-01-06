@@ -1,12 +1,11 @@
 #pragma once
 
+#include "ir/IR.h"
+
 #include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
 typedef enum {
@@ -17,13 +16,10 @@ typedef enum {
 struct symbol_t {
   std::string name;
   symbol_type_t type;
-  std::variant<int32_t, std::string> value; // 常量或偏移值
+  Value value; // 常量值或变量地址
 
-  symbol_t(const std::string &name, int32_t imm)
-      : name(name), type(SYMBOL_TYPE_CONSTANT), value(imm) {}
-
-  symbol_t(const std::string &name, std::string offset)
-      : name(name), type(SYMBOL_TYPE_VARIABLE), value(std::move(offset)) {}
+  symbol_t(const std::string &name, symbol_type_t type, Value value)
+      : name(name), type(type), value(std::move(value)) {}
 };
 
 class SymbolTable {
@@ -31,9 +27,7 @@ public:
   SymbolTable() = default;
   ~SymbolTable() = default;
 
-  void Define(const std::string &name, int32_t imm);
-  void Define(const std::string &name, std::string offset);
-
+  void Define(const std::string &name, symbol_type_t type, Value value);
   std::optional<symbol_t> Lookup(const std::string &name) const;
 
   void EnterScope();
@@ -41,5 +35,5 @@ public:
 
 private:
   std::size_t current_scope_level_ = 0;
-  std::unordered_map<std::string, symbol_t> scopes_;
+  std::vector<std::unordered_map<std::string, symbol_t>> scopes_;
 };

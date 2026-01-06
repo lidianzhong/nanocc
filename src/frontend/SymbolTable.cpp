@@ -1,35 +1,34 @@
-#include <cassert>
-#include <cstdint>
-#include <stdexcept>
-#include <string>
-#include <variant>
-
 #include "frontend/SymbolTable.h"
 
-void SymbolTable::Define(const std::string &name, int32_t value) {
-  std::string key = '@' + name + std::to_string(current_scope_level_);
-  scopes_.emplace(key, symbol_t(name, value));
-}
+#include <cassert>
+#include <string>
 
-void SymbolTable::Define(const std::string &name, std::string offset) {
-  std::string key = '@' + name + std::to_string(current_scope_level_);
-  scopes_.emplace(key, symbol_t(name, offset));
+void SymbolTable::Define(const std::string &name, symbol_type_t type,
+                         Value value) {
+  if (scopes_.empty()) {
+    scopes_.emplace_back();
+  }
+  scopes_.back().emplace(name, symbol_t(name, type, std::move(value)));
 }
 
 std::optional<symbol_t> SymbolTable::Lookup(const std::string &name) const {
-  for (int level = current_scope_level_; level >= 0; --level) {
-    std::string key = '@' + name + std::to_string(level);
-    auto it = scopes_.find(key);
-    if (it != scopes_.end()) {
-      return it->second;
+  // 从内层作用域向外层查找
+  for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+    auto found = it->find(name);
+    if (found != it->end()) {
+      return found->second;
     }
   }
   return std::nullopt;
 }
 
-void SymbolTable::EnterScope() { ++current_scope_level_; }
+void SymbolTable::EnterScope() {
+  scopes_.emplace_back();
+  ++current_scope_level_;
+}
 
 void SymbolTable::ExitScope() {
   assert(current_scope_level_ > 0);
+  scopes_.pop_back();
   --current_scope_level_;
 }

@@ -1,15 +1,13 @@
-#include <cassert>
-#include <cstddef>
-#include <cstdio>
-#include <iostream>
-#include <sstream>
-#include <string>
-
 #include "backend/CodeGen.h"
 #include "frontend/AST.h"
 #include "frontend/DumpVisitor.h"
-#include "frontend/IRGenVisitor.h"
-#include "frontend/SymbolTable.h"
+#include "ir/IRGenVisitor.h"
+#include "ir/IRSerializer.h"
+
+#include <cassert>
+#include <cstdio>
+#include <iostream>
+#include <string>
 
 using namespace std;
 
@@ -56,14 +54,14 @@ int main(int argc, const char *argv[]) {
     // 生成 Koopa IR 文本
     FILE *out = fopen(output, "w");
     assert(out);
-    std::string ir = irgen.GetIR();
+    std::string ir = IRSerializer::ToIR(irgen.GetModule());
     fprintf(out, "%s", ir.c_str());
     fclose(out);
   } else if (mode == "-riscv") {
     // 生成 RISC-V 汇编
     freopen(output, "w", stdout);
     ProgramCodeGen codegen;
-    codegen.Emit(irgen.GetProgram());
+    codegen.Emit(IRSerializer::ToProgram(irgen.GetModule()));
     fclose(stdout);
   }
 

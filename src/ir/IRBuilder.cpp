@@ -1,140 +1,203 @@
+#include "ir/IRBuilder.h"
+#include "ir/IR.h"
+
 #include <cassert>
 #include <iostream>
 
-#include "ir/IRBuilder.h"
+void IRBuilder::SetCurrentFunction(Function *func) { cur_func_ = func; }
 
-koopa_raw_program_t IRBuilder::Build() {
-  std::string ir = buffer_.str();
-  koopa_program_t program = nullptr;
-  koopa_error_code_t ret = koopa_parse_from_string(ir.c_str(), &program);
-  assert(ret == KOOPA_EC_SUCCESS);
-
-  auto builder = koopa_new_raw_program_builder();
-  return koopa_build_raw_program(builder, program);
+void IRBuilder::EndFunction() {
+  cur_func_ = nullptr;
+  cur_bb_ = nullptr;
 }
 
-void IRBuilder::StartFunction(const std::string &name,
-                              const std::string &ret_type) {
-  buffer_ << "fun @" << name << "(): " << ret_type << " {" << std::endl;
+BasicBlock *IRBuilder::CreateBlock(const std::string &name) {
+  std::string block_name = name == "entry" ? name : NewTempLabel_(name);
+  return cur_func_->CreateBlock(block_name);
 }
 
-void IRBuilder::EndFunction() { buffer_ << "}" << std::endl; }
+void IRBuilder::SetInsertPoint(BasicBlock *bb) { cur_bb_ = bb; }
 
-void IRBuilder::CreateBasicBlock(const std::string &label) {
-  buffer_ << "%" << label << ":" << std::endl;
+/**
+ * @addr = alloc type
+ */
+Value IRBuilder::CreateAlloca(const std::string &type,
+                              const std::string &var_name) {
+  Value addr = NewTempAddr_(var_name);
+  Emit(Opcode::Alloc, addr);
+  return addr;
 }
 
-std::string IRBuilder::CreateAlloca(const std::string &type,
-                                    const std::string &var_name) {
-  std::string alloc_reg = NewTempReg_(var_name);
-  buffer_ << "  " << alloc_reg << " = alloc " << type << std::endl;
-  return alloc_reg;
+/**
+ * @reg = load @addr
+ */
+Value IRBuilder::CreateLoad(const Value &addr) {
+  assert(addr.isAddress() && "CreateLoad expects an address");
+  Value reg = NewTempReg_();
+  Emit(Opcode::Load, reg, addr);
+  return reg;
 }
 
-std::string IRBuilder::CreateLoad(const std::string &alloc) {
-  std::string load_reg = NewTempReg_();
-  buffer_ << "  " << load_reg << " = load " << alloc << std::endl;
-  return load_reg;
+/**
+ * store (imm | @reg), @addr
+ */
+void IRBuilder::CreateStore(const Value &value, const Value &addr) {
+  assert((value.isImmediate() || value.isRegister()) &&
+         "CreateStore expects an immediate or register value");
+  assert(addr.isAddress() && "CreateStore expects an address");
+  Emit(Opcode::Store, value, addr);
 }
 
-void IRBuilder::CreateStore(const std::string &value,
-                            const std::string &alloc) {
-  buffer_ << "  store " << value << ", " << alloc << std::endl;
-}
+/**
+ * @input: cond (imm | @reg | @addr)
+ *
+ * br @cond_reg, %then_bb [args], %else_bb [args]
+ */
+void IRBuilder::CreateBranch(const Value &cond, BasicBlock *then_bb,
+                             const std::vector<Value> &then_args,
+                             BasicBlock *else_bb,
+                             const std::vector<Value> &else_args) {
 
-std::string IRBuilder::CreateUnaryOp(const std::string &op,
-                                     const std::string &value) {
-  std::string result_reg = NewTempReg_();
+  Value cond_reg;
 
-  if (op == "-") {
-    // 取负：sub 0, value
-    buffer_ << "  " << result_reg << " = sub 0, " << value << std::endl;
-  } else if (op == "!") {
-    // 逻辑非：eq value, 0
-    buffer_ << "  " << result_reg << " = eq " << value << ", 0" << std::endl;
-  } else if (op == "+") {
-    // 正号：直接返回原值
-    return value;
-  } else {
-    // 未知操作符
-    std::cerr << "Unknown unary operator: " << op << std::endl;
-    return "";
+  if (cond.isImmediate()) {
+    // 立即数非0为true，0为false
+    cond_reg = CreateBinaryOp("!=", cond, Value::Imm(0));
+  } else if (cond.isRegister()) {
+    cond_reg = cond;
+  } else if (cond.isAddress()) {
+    // 地址先load，load结果作为条件
+    cond_reg = CreateLoad(cond);
   }
 
-  return result_reg;
+  Emit(Opcode::Br, cond_reg, BranchTarget(then_bb, then_args),
+       BranchTarget(else_bb, else_args));
 }
 
-std::string IRBuilder::CreateBinaryOp(const std::string &op,
-                                      const std::string &lhs,
-                                      const std::string &rhs) {
-  std::string result_reg = NewTempReg_();
-  std::string ir_op;
+/**
+ * jmp @target_bb [args]
+ */
+void IRBuilder::CreateJump(BasicBlock *target_bb,
+                           const std::vector<Value> &args) {
+  Emit(Opcode::Jmp, BranchTarget(target_bb, args));
+}
 
+/**
+ * ret (imm | @reg)
+ */
+void IRBuilder::CreateReturn(const Value &value) { Emit(Opcode::Ret, value); }
+
+/**
+ * ret
+ */
+void IRBuilder::CreateReturn() { Emit(Opcode::Ret); }
+
+/**
+ * @input: value (imm | @reg | @addr)
+ *
+ * @res_reg = unary_op val_reg (imm | @reg | @addr)
+ */
+Value IRBuilder::CreateUnaryOp(const std::string &op, const Value &value) {
   if (op == "+") {
-    ir_op = "add";
-  } else if (op == "-") {
-    ir_op = "sub";
-  } else if (op == "*") {
-    ir_op = "mul";
-  } else if (op == "/") {
-    ir_op = "div";
-  } else if (op == "%") {
-    ir_op = "mod";
-  } else if (op == "<") {
-    ir_op = "lt";
-  } else if (op == ">") {
-    ir_op = "gt";
-  } else if (op == "<=") {
-    ir_op = "le";
-  } else if (op == ">=") {
-    ir_op = "ge";
-  } else if (op == "==") {
-    ir_op = "eq";
-  } else if (op == "!=") {
-    ir_op = "ne";
-  } else if (op == "&&") {
-    // 逻辑与：需要先转换为布尔值，然后使用 and
-    std::string temp1 = NewTempReg_();
-    buffer_ << "  " << temp1 << " = ne " << lhs << ", 0" << std::endl;
-    std::string temp2 = NewTempReg_();
-    buffer_ << "  " << temp2 << " = ne " << rhs << ", 0" << std::endl;
-    buffer_ << "  " << result_reg << " = and " << temp1 << ", " << temp2
-            << std::endl;
-    return result_reg;
-  } else if (op == "||") {
-    // 逻辑或：需要先转换为布尔值，然后使用 or
-    std::string temp1 = NewTempReg_();
-    buffer_ << "  " << temp1 << " = ne " << lhs << ", 0" << std::endl;
-    std::string temp2 = NewTempReg_();
-    buffer_ << "  " << temp2 << " = ne " << rhs << ", 0" << std::endl;
-    buffer_ << "  " << result_reg << " = or " << temp1 << ", " << temp2
-            << std::endl;
-    return result_reg;
+    return value;
+  }
+
+  // 常量折叠
+  if (value.isImmediate()) {
+    if (op == "-") {
+      return Value::Imm(-value.imm);
+    } else if (op == "!") {
+      return Value::Imm(value.imm == 0 ? 1 : 0);
+    }
+  }
+
+  Value val_reg;
+  if (value.isAddress()) {
+    // 如果是地址，先load，load结果作为操作数
+    val_reg = CreateLoad(value);
+  } else if (value.isRegister()) {
+    val_reg = value;
+  };
+
+  Value res_reg = NewTempReg_();
+  if (op == "-") {
+    Emit(Opcode::Sub, res_reg, Value::Imm(0), val_reg);
+  } else if (op == "!") {
+    Emit(Opcode::Eq, res_reg, val_reg, Value::Imm(0));
   } else {
+    std::cerr << "Unknown unary operator: " << op << std::endl;
+    assert(false);
+  }
+
+  return res_reg;
+}
+
+/**
+ * @input: lhs (imm | @reg | @addr), rhs (imm | @reg | @addr)
+ *
+ * @res_reg = binary_op lhs_reg rhs_reg (imm | @reg)
+ */
+Value IRBuilder::CreateBinaryOp(const std::string &op, const Value &lhs,
+                                const Value &rhs) {
+
+  // 如果是地址，先load
+  Value lhs_reg = lhs;
+  Value rhs_reg = rhs;
+  if (lhs.isAddress()) {
+    lhs_reg = CreateLoad(lhs);
+  }
+  if (rhs.isAddress()) {
+    rhs_reg = CreateLoad(rhs);
+  }
+
+  Opcode opcode;
+  if (op == "+")
+    opcode = Opcode::Add;
+  else if (op == "-")
+    opcode = Opcode::Sub;
+  else if (op == "*")
+    opcode = Opcode::Mul;
+  else if (op == "/")
+    opcode = Opcode::Div;
+  else if (op == "%")
+    opcode = Opcode::Mod;
+  else if (op == "<")
+    opcode = Opcode::Lt;
+  else if (op == ">")
+    opcode = Opcode::Gt;
+  else if (op == "<=")
+    opcode = Opcode::Le;
+  else if (op == ">=")
+    opcode = Opcode::Ge;
+  else if (op == "==")
+    opcode = Opcode::Eq;
+  else if (op == "!=")
+    opcode = Opcode::Ne;
+  else if (op == "&&")
+    opcode = Opcode::And;
+  else if (op == "||")
+    opcode = Opcode::Or;
+  else {
     std::cerr << "Unknown binary operator: " << op << std::endl;
-    return "";
+    assert(false);
   }
 
-  buffer_ << "  " << result_reg << " = " << ir_op << " " << lhs << ", " << rhs
-          << std::endl;
-  return result_reg;
+  Value res_reg = NewTempReg_();
+  Emit(opcode, res_reg, lhs_reg, rhs_reg);
+  return res_reg;
 }
 
-std::string IRBuilder::CreateNumber(int value) { return std::to_string(value); }
-
-void IRBuilder::CreateReturn(const std::string &value) {
-  if (value.empty()) {
-    buffer_ << "  ret" << std::endl;
-  } else {
-    buffer_ << "  ret " << value << std::endl;
-  }
+Value IRBuilder::NewTempReg_() {
+  return Value::Reg("%" + std::to_string(temp_reg_id_++));
 }
 
-std::string IRBuilder::NewTempReg_(const std::string &var_name) {
-  if (!var_name.empty()) {
-    int &counter = var_reg_counters_[var_name];
-    return "@" + var_name + "_" + std::to_string(++counter);
-  } else {
-    return "%" + std::to_string(temp_reg_id_++);
-  }
+Value IRBuilder::NewTempAddr_(const std::string &addr_name) {
+  assert(!addr_name.empty() && "new addr name cannot be empty");
+  return Value::Addr("@" + addr_name + "_" +
+                     std::to_string(++temp_addr_counters_[addr_name]));
+}
+
+std::string IRBuilder::NewTempLabel_(const std::string &prefix) {
+  int &counter = temp_label_counters_[prefix];
+  return prefix + "_" + std::to_string(++counter);
 }

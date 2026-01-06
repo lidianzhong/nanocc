@@ -37,15 +37,19 @@ using namespace std;
 }
 
 // lexer 返回的所有 token 种类的声明
-// 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token CONST INT RETURN LE GE EQ NE AND OR
+/* 关键字 */
+%token INT RETURN CONST IF ELSE
+/* 标识符与数值 */
 %token <str_val> IDENT
 %token <int_val> INT_CONST
+/* 运算符与标点 */
+%token LE GE EQ NE  /* <=, >=, ==, != */
+%token AND OR       /* &&, || */
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef Block BlockItem Decl ConstDecl VarDecl
-%type <ast_val> ConstDef VarDef ConstInitVal InitVal
-%type <ast_val> Stmt ExpStmt LVal Exp PrimaryExp Number UnaryExp
+%type <ast_val> Decl ConstDecl VarDecl ConstDef VarDef ConstInitVal InitVal
+%type <ast_val> FuncDef Block BlockItem Stmt MatchedStmt UnMatchedStmt
+%type <ast_val> Exp LVal PrimaryExp Number UnaryExp
 %type <ast_val> MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <str_val> BType FuncType UnaryOp
 %type <ast_list> ConstDefList VarDefList BlockItemList
@@ -58,24 +62,6 @@ CompUnit
     auto comp_unit = make_unique<CompUnitAST>();
     comp_unit->func_def = unique_ptr<BaseAST>($1);
     ast = std::move(comp_unit);
-  }
-  ;
-
-// FuncDef ::= FuncType IDENT "(" ")" Block
-FuncDef
-  : FuncType IDENT '(' ')' Block {
-    auto ast = new FuncDefAST();
-    ast->ret_type = *unique_ptr<string>($1);
-    ast->ident = *unique_ptr<string>($2);
-    ast->block = unique_ptr<BaseAST>($5);
-    $$ = ast;
-  }
-  ;
-
-// FuncType ::= "int"
-FuncType
-  : INT {
-    $$ = new string("int");
   }
   ;
 
@@ -172,6 +158,24 @@ InitVal
   : Exp { $$ = $1; }
   ;
 
+// FuncDef ::= FuncType IDENT "(" ")" Block
+FuncDef
+  : FuncType IDENT '(' ')' Block {
+    auto ast = new FuncDefAST();
+    ast->ret_type = *unique_ptr<string>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->block = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  }
+  ;
+
+// FuncType ::= "int"
+FuncType
+  : INT {
+    $$ = new string("int");
+  }
+  ;
+
 // Block ::= "{" {BlockItem} "}"
 Block
   : '{' BlockItemList '}' {
@@ -198,15 +202,42 @@ BlockItem
   | Stmt { $$ = $1; }
   ;
 
-// Stmt ::= LVal "=" Exp ";" | [Exp] ";" | Block | "return" [Exp] ";"
+// Stmt ::= MatchedStmt | UnMatchedStmt
 Stmt
-  : LVal '=' Exp ';' {
+  : MatchedStmt { $$ = $1; }
+  | UnMatchedStmt { $$ = $1; }
+  ;
+
+// MatchedStmt ::= IF '(' Exp ')' MatchedStmt ELSE MatchedStmt
+//              | LVal '=' Exp ';'
+//              | [Exp] ';'
+//              | Block
+//              | RETURN Exp ';'
+//              | RETURN ';'
+MatchedStmt
+  : IF '(' Exp ')' MatchedStmt ELSE MatchedStmt {
+    auto ast = new IfStmtAST();
+    ast->exp = unique_ptr<BaseAST>($3);
+    ast->then_stmt = unique_ptr<BaseAST>($5);
+    ast->else_stmt = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
+  | LVal '=' Exp ';' {
     auto ast = new AssignStmtAST();
     ast->lval = unique_ptr<LValAST>(static_cast<LValAST*>($1));
     ast->exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
-  | ExpStmt ';' { $$ = $1; }
+  | Exp ';' {
+    auto ast = new ExpStmtAST();
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | ';' {
+    auto ast = new ExpStmtAST();
+    ast->exp = nullptr;
+    $$ = ast;
+  }
   | Block { $$ = $1; }
   | RETURN Exp ';' {
     auto ast = new ReturnStmtAST();
@@ -220,30 +251,21 @@ Stmt
   }
   ;
 
-// ExpStmt ::= Exp | /* empty */
-ExpStmt
-  : Exp {
-    auto ast = new ExpStmtAST();
-    ast->exp = unique_ptr<BaseAST>($1);
+// UnMatchedStmt ::= IF '(' Exp ')' Stmt
+//                | IF '(' Exp ')' MatchedStmt ELSE UnMatchedStmt
+UnMatchedStmt
+  : IF '(' Exp ')' Stmt {
+    auto ast = new IfStmtAST();
+    ast->exp = unique_ptr<BaseAST>($3);
+    ast->then_stmt = unique_ptr<BaseAST>($5);
+    ast->else_stmt = nullptr;
     $$ = ast;
   }
-  | /* empty */ {
-    auto ast = new ExpStmtAST();
-    ast->exp = nullptr;
-    $$ = ast;
-  }
-  ;
-
-// Exp ::= LOrExp
-Exp
-  : LOrExp { $$ = $1; }
-  ;
-
-// LVal ::= IDENT
-LVal
-  : IDENT {
-    auto ast = new LValAST();
-    ast->ident = *unique_ptr<string>($1);
+  | IF '(' Exp ')' MatchedStmt ELSE UnMatchedStmt {
+    auto ast = new IfStmtAST();
+    ast->exp = unique_ptr<BaseAST>($3);
+    ast->then_stmt = unique_ptr<BaseAST>($5);
+    ast->else_stmt = unique_ptr<BaseAST>($7);
     $$ = ast;
   }
   ;
@@ -253,6 +275,15 @@ PrimaryExp
   : '(' Exp ')' { $$ = $2; }
   | LVal { $$ = $1; }
   | Number { $$ = $1; }
+  ;
+
+// LVal ::= IDENT
+LVal
+  : IDENT {
+    auto ast = new LValAST();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
   ;
 
 // Number ::= INT_CONST
@@ -401,6 +432,11 @@ LOrExp
     ast->rhs = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
+  ;
+
+// Exp ::= LOrExp
+Exp
+  : LOrExp { $$ = $1; }
   ;
 
 // ConstExp ::= Exp

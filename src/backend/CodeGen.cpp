@@ -1,8 +1,12 @@
-#include "backend/CodeGen.h"
-#include "koopa.h"
+
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
+
+#include "backend/CodeGen.h"
+
+#include "koopa.h"
 
 void ProgramCodeGen::Emit(const koopa_raw_program_t &program) {
   EmitTextSection();
@@ -63,11 +67,17 @@ void FunctionCodeGen::EmitPrologue() {
 
 void FunctionCodeGen::EmitEpilogue() {
   int size = static_cast<int>(stack_frame_.GetStackSize());
+  std::cout << "epilogue:" << std::endl;
   std::cout << "  addi sp, sp, " << size << std::endl;
   std::cout << "  ret" << std::endl;
 }
 
 void FunctionCodeGen::EmitBasicBlock(const koopa_raw_basic_block_t &bb) {
+  std::string label_name = bb->name;
+  label_name = label_name.substr(1);
+  // 函数入口的 Block 不需要再添加 label 了，已经有 main 入口了
+  if (label_name != "entry")
+    std::cout << label_name << ':' << std::endl;
   EmitSlice(bb->insts);
 }
 
@@ -88,6 +98,9 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
       std::cout << "  lw a0, " << ret_offset << "(sp)" << std::endl;
     }
     }
+
+    std::cout << "  j epilogue" << std::endl;
+
     break;
   }
   case KOOPA_RVT_INTEGER:
@@ -116,6 +129,28 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     }
 
     switch (binary.op) {
+    case KOOPA_RBO_NOT_EQ:
+      std::cout << "  sub t0, t0, t1" << std::endl;
+      std::cout << "  snez t0, t0" << std::endl;
+      break;
+    case KOOPA_RBO_EQ:
+      std::cout << "  sub t0, t0, t1" << std::endl;
+      std::cout << "  seqz t0, t0" << std::endl;
+      break;
+    case KOOPA_RBO_GT:
+      std::cout << "  sgt t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_LT:
+      std::cout << "  slt t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_GE:
+      std::cout << "  slt t0, t0, t1" << std::endl;
+      std::cout << "  xori t0, t0, 1" << std::endl;
+      break;
+    case KOOPA_RBO_LE:
+      std::cout << "  sgt t0, t0, t1" << std::endl;
+      std::cout << "  xori t0, t0, 1" << std::endl;
+      break;
     case KOOPA_RBO_ADD:
       std::cout << "  add t0, t0, t1" << std::endl;
       break;
@@ -130,6 +165,24 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
       break;
     case KOOPA_RBO_MOD:
       std::cout << "  rem t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_AND:
+      std::cout << "  and t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_OR:
+      std::cout << "  or t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_XOR:
+      std::cout << "  xor t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_SHL:
+      std::cout << "  sll t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_SHR:
+      std::cout << "  srl t0, t0, t1" << std::endl;
+      break;
+    case KOOPA_RBO_SAR:
+      std::cout << "  sra t0, t0, t1" << std::endl;
       break;
     default:
       std::cerr << "Unsupported binary operation: " << binary.op << std::endl;
@@ -157,7 +210,7 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     const auto &store = kind.data.store;
     switch (store.value->kind.tag) {
     case KOOPA_RVT_INTEGER: {
-      size_t src_imm = store.value->kind.data.integer.value;
+      int32_t src_imm = store.value->kind.data.integer.value;
       std::cout << "  li t0, " << src_imm << std::endl;
       break;
     }
@@ -172,6 +225,40 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     std::cout << "  sw t0, " << dest_offset << "(sp)" << std::endl;
     break;
   }
+  case KOOPA_RVT_BRANCH: {
+    const auto &branch = kind.data.branch;
+    std::string true_label = std::string(branch.true_bb->name).substr(1);
+    std::string false_label = std::string(branch.false_bb->name).substr(1);
+
+    // 加载条件
+    if (branch.cond->kind.tag == KOOPA_RVT_INTEGER) {
+      std::cout << "  li t0, " << branch.cond->kind.data.integer.value
+                << std::endl;
+    } else {
+      size_t cond_offset = GetStackOffset(branch.cond);
+      std::cout << "  lw t0, " << cond_offset << "(sp)" << std::endl;
+    }
+
+    // 条件为 false 时跳到 false 分支
+    std::cout << "  beqz t0, " << false_label << "_args" << std::endl;
+
+    // 条件为 true：传递 true_args 并跳转
+    EmitBlockArgs(branch.true_bb, branch.true_args);
+    std::cout << "  j " << true_label << std::endl;
+
+    // false 分支的参数传递
+    std::cout << false_label << "_args:" << std::endl;
+    EmitBlockArgs(branch.false_bb, branch.false_args);
+    std::cout << "  j " << false_label << std::endl;
+    break;
+  }
+  case KOOPA_RVT_JUMP: {
+    const auto &jump = kind.data.jump;
+    std::string jump_label = std::string(jump.target->name).substr(1);
+    std::cout << "  j " << jump_label << std::endl;
+    break;
+  }
+
   default:
     std::cerr << "Error: Unsupported value kind: " << kind.tag << std::endl;
     assert(false);
@@ -185,6 +272,14 @@ void FunctionCodeGen::AllocateStackSpace() {
   for (size_t i = 0; i < bbs.len; ++i) {
     koopa_raw_basic_block_t bb = (koopa_raw_basic_block_t)bbs.buffer[i];
 
+    // 分配块参数的栈空间
+    koopa_raw_slice_t params = bb->params;
+    for (size_t j = 0; j < params.len; ++j) {
+      koopa_raw_value_t param = (koopa_raw_value_t)params.buffer[j];
+      stack_frame_.AllocSlot(param);
+    }
+
+    // 分配指令的栈空间
     koopa_raw_slice_t insts = bb->insts;
     for (size_t j = 0; j < insts.len; ++j) {
       koopa_raw_value_t inst = (koopa_raw_value_t)insts.buffer[j];
@@ -204,4 +299,21 @@ size_t FunctionCodeGen::GetStackOffset(koopa_raw_value_t val) {
   // 不应为立即数分配栈空间
   assert(val->kind.tag != KOOPA_RVT_INTEGER);
   return stack_frame_.GetOffset(val);
+}
+
+void FunctionCodeGen::EmitBlockArgs(koopa_raw_basic_block_t bb,
+                                    koopa_raw_slice_t args) {
+  for (size_t i = 0; i < args.len; ++i) {
+    koopa_raw_value_t arg = (koopa_raw_value_t)args.buffer[i];
+    koopa_raw_value_t param = (koopa_raw_value_t)bb->params.buffer[i];
+    size_t param_offset = GetStackOffset(param);
+
+    if (arg->kind.tag == KOOPA_RVT_INTEGER) {
+      std::cout << "  li t1, " << arg->kind.data.integer.value << std::endl;
+    } else {
+      size_t arg_offset = GetStackOffset(arg);
+      std::cout << "  lw t1, " << arg_offset << "(sp)" << std::endl;
+    }
+    std::cout << "  sw t1, " << param_offset << "(sp)" << std::endl;
+  }
 }

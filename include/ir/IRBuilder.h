@@ -1,38 +1,51 @@
 #pragma once
 
-#include <sstream>
-#include <string>
-#include <unordered_map>
+#include "ir/IR.h"
 
-#include "koopa.h"
+#include <memory>
+#include <unordered_map>
 
 class IRBuilder {
 public:
   IRBuilder() = default;
   ~IRBuilder() = default;
 
-  koopa_raw_program_t Build();
-  std::string GetIR() const { return buffer_.str(); }
-
-  void StartFunction(const std::string &name, const std::string &ret_type);
+  void SetCurrentFunction(Function *func);
   void EndFunction();
-  void CreateBasicBlock(const std::string &label = "entry");
 
-  std::string CreateAlloca(const std::string &type = "i32",
-                           const std::string &var_name = "");
-  std::string CreateLoad(const std::string &alloc);
-  void CreateStore(const std::string &value, const std::string &alloc);
+  BasicBlock *CreateBlock(const std::string &name);
+  void SetInsertPoint(BasicBlock *bb);
 
-  std::string CreateUnaryOp(const std::string &op, const std::string &value);
-  std::string CreateBinaryOp(const std::string &op, const std::string &lhs,
-                             const std::string &rhs);
-  std::string CreateNumber(int value);
-  void CreateReturn(const std::string &value = "");
+  template <typename... T> void Emit(Opcode op, T &&...args) {
+    cur_bb_->Append(
+        std::make_unique<Instruction>(op, std::forward<T>(args)...));
+  }
 
-  std::string NewTempReg_(const std::string &var_name = "");
+  Value CreateAlloca(const std::string &type, const std::string &var_name = "");
+  Value CreateLoad(const Value &addr);
+  void CreateStore(const Value &value, const Value &addr);
+
+  void CreateBranch(const Value &cond, BasicBlock *then_bb,
+                    const std::vector<Value> &then_args, BasicBlock *else_bb,
+                    const std::vector<Value> &else_args);
+  void CreateJump(BasicBlock *target_bb, const std::vector<Value> &args = {});
+  void CreateReturn(const Value &value);
+  void CreateReturn();
+
+  Value CreateUnaryOp(const std::string &op, const Value &value);
+  Value CreateBinaryOp(const std::string &op, const Value &lhs,
+                       const Value &rhs);
 
 public:
-  std::stringstream buffer_;
+  Function *cur_func_ = nullptr;
+  BasicBlock *cur_bb_ = nullptr;
+
+private:
+  Value NewTempReg_();
+  Value NewTempAddr_(const std::string &addr_name = "");
+  std::string NewTempLabel_(const std::string &prefix = "");
+
   int temp_reg_id_ = 0;
-  std::unordered_map<std::string, int> var_reg_counters_;
+  std::unordered_map<std::string, int> temp_addr_counters_;
+  std::unordered_map<std::string, int> temp_label_counters_;
 };

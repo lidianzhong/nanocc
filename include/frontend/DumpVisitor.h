@@ -1,12 +1,14 @@
 #pragma once
 
 #include "frontend/ASTVisitor.h"
-#include <iostream>
+
+#include <fstream>
 #include <string>
 
 class DumpVisitor : public ASTVisitor {
 public:
-  DumpVisitor() = default;
+  DumpVisitor(const std::string &filename = "hello.ast");
+  ~DumpVisitor();
 
   void Visit(CompUnitAST &node) override;
   void Visit(FuncDefAST &node) override;
@@ -17,6 +19,7 @@ public:
   void Visit(VarDefAST &node) override;
   void Visit(AssignStmtAST &node) override;
   void Visit(ExpStmtAST &node) override;
+  void Visit(IfStmtAST &node) override;
   void Visit(ReturnStmtAST &node) override;
   void Visit(LValAST &node) override;
   void Visit(NumberAST &node) override;
@@ -25,6 +28,7 @@ public:
 
 private:
   int indent_level = 0;
+  mutable std::ofstream out_file;
 
   void print_indent() const;
   void print_node(const std::string &name);

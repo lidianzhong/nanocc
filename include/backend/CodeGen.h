@@ -2,6 +2,7 @@
 
 #include "FrameInfo.h"
 #include "koopa.h"
+
 #include <map>
 #include <string>
 
@@ -32,6 +33,8 @@ private:
   void AllocateStackSpace();
 
   size_t GetStackOffset(koopa_raw_value_t val);
+
+  void EmitBlockArgs(koopa_raw_basic_block_t bb, koopa_raw_slice_t args);
 
   koopa_raw_function_t func_;
   FrameInfo stack_frame_;
