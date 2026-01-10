@@ -38,7 +38,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 /* 关键字 */
-%token INT RETURN CONST IF ELSE
+%token INT RETURN CONST IF ELSE WHILE
 /* 标识符与数值 */
 %token <str_val> IDENT
 %token <int_val> INT_CONST
@@ -209,6 +209,7 @@ Stmt
   ;
 
 // MatchedStmt ::= IF '(' Exp ')' MatchedStmt ELSE MatchedStmt
+//              | WHILE '(' Exp ')' MatchedStmt
 //              | LVal '=' Exp ';'
 //              | [Exp] ';'
 //              | Block
@@ -220,6 +221,12 @@ MatchedStmt
     ast->exp = unique_ptr<BaseAST>($3);
     ast->then_stmt = unique_ptr<BaseAST>($5);
     ast->else_stmt = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
+  | WHILE '(' Exp ')' MatchedStmt {
+    auto ast = new WhileStmtAST();
+    ast->cond = unique_ptr<BaseAST>($3);
+    ast->body = unique_ptr<BaseAST>($5);
     $$ = ast;
   }
   | LVal '=' Exp ';' {
@@ -253,6 +260,7 @@ MatchedStmt
 
 // UnMatchedStmt ::= IF '(' Exp ')' Stmt
 //                | IF '(' Exp ')' MatchedStmt ELSE UnMatchedStmt
+//                | WHILE '(' Exp ')' Stmt
 UnMatchedStmt
   : IF '(' Exp ')' Stmt {
     auto ast = new IfStmtAST();
@@ -266,6 +274,12 @@ UnMatchedStmt
     ast->exp = unique_ptr<BaseAST>($3);
     ast->then_stmt = unique_ptr<BaseAST>($5);
     ast->else_stmt = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
+  | WHILE '(' Exp ')' Stmt {
+    auto ast = new WhileStmtAST();
+    ast->cond = unique_ptr<BaseAST>($3);
+    ast->body = unique_ptr<BaseAST>($5);
     $$ = ast;
   }
   ;

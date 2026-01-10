@@ -156,6 +156,8 @@ void IRGenVisitor::VisitExpStmt_(const ExpStmtAST *ast) {
 }
 
 void IRGenVisitor::VisitIfStmt_(const IfStmtAST *ast) {
+  // TODO: 目前If还不是SSA形式
+
   auto *then_bb = builder_->CreateBlock("then");
   auto *end_bb = builder_->CreateBlock("end");
 
@@ -163,7 +165,7 @@ void IRGenVisitor::VisitIfStmt_(const IfStmtAST *ast) {
 
   if (ast->else_stmt) {
     auto *else_bb = builder_->CreateBlock("else");
-    builder_->CreateBranch(cond, then_bb, {}, else_bb, {Value::Imm(0)});
+    builder_->CreateBranch(cond, then_bb, {}, else_bb, {});
 
     // then分支
     builder_->SetInsertPoint(then_bb);
@@ -180,7 +182,7 @@ void IRGenVisitor::VisitIfStmt_(const IfStmtAST *ast) {
       builder_->CreateJump(end_bb);
     }
   } else {
-    builder_->CreateBranch(cond, then_bb, {}, end_bb, {Value::Imm(0)});
+    builder_->CreateBranch(cond, then_bb, {}, end_bb, {});
 
     // then分支
     builder_->SetInsertPoint(then_bb);
@@ -191,6 +193,32 @@ void IRGenVisitor::VisitIfStmt_(const IfStmtAST *ast) {
     }
   }
 
+  builder_->SetInsertPoint(end_bb);
+}
+
+void IRGenVisitor::VisitWhileStmt_(const WhileStmtAST *ast) {
+
+  auto *entry_bb = builder_->CreateBlock("while_entry");
+  auto *body_bb = builder_->CreateBlock("while_body");
+  auto *end_bb = builder_->CreateBlock("while_end");
+
+  // 跳转到 entry 块
+  builder_->CreateJump(entry_bb);
+
+  // entry 块
+  builder_->SetInsertPoint(entry_bb);
+  Value cond = Eval(ast->cond.get());
+  builder_->CreateBranch(cond, body_bb, {}, end_bb, {});
+
+  // body 块
+  builder_->SetInsertPoint(body_bb);
+  assert(ast->body);
+  ast->body->Accept(*this);
+  if (!builder_->cur_bb_->HasTerminator()) {
+    builder_->CreateJump(entry_bb);
+  }
+
+  // end 块
   builder_->SetInsertPoint(end_bb);
 }
 
@@ -377,6 +405,7 @@ void IRGenVisitor::Visit(VarDefAST &node) { VisitVarDef_(&node); }
 void IRGenVisitor::Visit(AssignStmtAST &node) { VisitAssignStmt_(&node); }
 void IRGenVisitor::Visit(ExpStmtAST &node) { VisitExpStmt_(&node); }
 void IRGenVisitor::Visit(IfStmtAST &node) { VisitIfStmt_(&node); }
+void IRGenVisitor::Visit(WhileStmtAST &node) { VisitWhileStmt_(&node); }
 void IRGenVisitor::Visit(ReturnStmtAST &node) { VisitReturnStmt_(&node); }
 void IRGenVisitor::Visit(LValAST &node) {}
 void IRGenVisitor::Visit(NumberAST &node) {}

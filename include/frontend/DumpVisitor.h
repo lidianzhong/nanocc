@@ -20,6 +20,7 @@ public:
   void Visit(AssignStmtAST &node) override;
   void Visit(ExpStmtAST &node) override;
   void Visit(IfStmtAST &node) override;
+  void Visit(WhileStmtAST &node) override;
   void Visit(ReturnStmtAST &node) override;
   void Visit(LValAST &node) override;
   void Visit(NumberAST &node) override;

@@ -106,6 +106,14 @@ public:
   void Accept(ASTVisitor &visitor) override;
 };
 
+/// 循环语句: "while" "(" Exp ")" Stmt
+class WhileStmtAST : public BaseAST {
+public:
+  std::unique_ptr<BaseAST> cond;
+  std::unique_ptr<BaseAST> body;
+  void Accept(ASTVisitor &visitor) override;
+};
+
 /// 返回语句: "return [Exp] ";"
 class ReturnStmtAST : public BaseAST {
 public:
@@ -159,6 +167,7 @@ inline void VarDefAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void AssignStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ExpStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void IfStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void WhileStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ReturnStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void LValAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void NumberAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }

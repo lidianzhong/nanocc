@@ -127,6 +127,14 @@ void DumpVisitor::Visit(IfStmtAST &node) {
     node.else_stmt->Accept(*this);
 }
 
+void DumpVisitor::Visit(WhileStmtAST &node) {
+  print_node("WhileStmtAST");
+  IndentGuard _{indent_level};
+  if (node.cond)
+    node.cond->Accept(*this);
+  if (node.body)
+    node.body->Accept(*this);
+}
 void DumpVisitor::Visit(ReturnStmtAST &node) {
   print_node("ReturnStmtAST");
   IndentGuard _{indent_level};

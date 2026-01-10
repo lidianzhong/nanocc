@@ -10,6 +10,7 @@ class VarDefAST;
 class AssignStmtAST;
 class ExpStmtAST;
 class IfStmtAST;
+class WhileStmtAST;
 class ReturnStmtAST;
 class LValAST;
 class NumberAST;
@@ -30,6 +31,7 @@ public:
   virtual void Visit(AssignStmtAST &node) = 0;
   virtual void Visit(ExpStmtAST &node) = 0;
   virtual void Visit(IfStmtAST &node) = 0;
+  virtual void Visit(WhileStmtAST &node) = 0;
   virtual void Visit(ReturnStmtAST &node) = 0;
   virtual void Visit(LValAST &node) = 0;
   virtual void Visit(NumberAST &node) = 0;
