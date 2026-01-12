@@ -114,6 +114,18 @@ public:
   void Accept(ASTVisitor &visitor) override;
 };
 
+/// 跳出循环语句: "break" ";"
+class BreakStmtAST : public BaseAST {
+public:
+  void Accept(ASTVisitor &visitor) override;
+};
+
+/// 继续循环语句: "continue" ";"
+class ContinueStmtAST : public BaseAST {
+public:
+  void Accept(ASTVisitor &visitor) override;
+};
+
 /// 返回语句: "return [Exp] ";"
 class ReturnStmtAST : public BaseAST {
 public:
@@ -168,6 +180,10 @@ inline void AssignStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ExpStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void IfStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void WhileStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void BreakStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void ContinueStmtAST::Accept(ASTVisitor &visitor) {
+  visitor.Visit(*this);
+}
 inline void ReturnStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void LValAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void NumberAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }

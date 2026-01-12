@@ -255,6 +255,7 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
   case KOOPA_RVT_JUMP: {
     const auto &jump = kind.data.jump;
     std::string jump_label = std::string(jump.target->name).substr(1);
+    EmitBlockArgs(jump.target, jump.args);
     std::cout << "  j " << jump_label << std::endl;
     break;
   }

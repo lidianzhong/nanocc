@@ -66,6 +66,9 @@ void IRGenVisitor::VisitBlock_(const BlockAST *ast) {
   symtab_->EnterScope();
 
   for (auto &item : ast->items) {
+    if (builder_->cur_bb_->HasTerminator()) {
+      break;
+    }
     if (item) {
       item->Accept(*this);
     }
@@ -202,6 +205,9 @@ void IRGenVisitor::VisitWhileStmt_(const WhileStmtAST *ast) {
   auto *body_bb = builder_->CreateBlock("while_body");
   auto *end_bb = builder_->CreateBlock("while_end");
 
+  break_targets_.push_back(end_bb);
+  continue_targets_.push_back(entry_bb);
+
   // 跳转到 entry 块
   builder_->CreateJump(entry_bb);
 
@@ -218,8 +224,27 @@ void IRGenVisitor::VisitWhileStmt_(const WhileStmtAST *ast) {
     builder_->CreateJump(entry_bb);
   }
 
+  break_targets_.pop_back();
+  continue_targets_.pop_back();
+
   // end 块
   builder_->SetInsertPoint(end_bb);
+}
+
+void IRGenVisitor::VisitBreakStmt_(const BreakStmtAST *ast) {
+  if (break_targets_.empty()) {
+    throw std::runtime_error(
+        "[Semantic Error]: 'break' statement not within a loop");
+  }
+  builder_->CreateJump(break_targets_.back());
+}
+
+void IRGenVisitor::VisitContinueStmt_(const ContinueStmtAST *ast) {
+  if (continue_targets_.empty()) {
+    throw std::runtime_error(
+        "[Semantic Error]: 'continue' statement not within a loop");
+  }
+  builder_->CreateJump(continue_targets_.back());
 }
 
 void IRGenVisitor::VisitReturnStmt_(const ReturnStmtAST *ast) {
@@ -406,6 +431,8 @@ void IRGenVisitor::Visit(AssignStmtAST &node) { VisitAssignStmt_(&node); }
 void IRGenVisitor::Visit(ExpStmtAST &node) { VisitExpStmt_(&node); }
 void IRGenVisitor::Visit(IfStmtAST &node) { VisitIfStmt_(&node); }
 void IRGenVisitor::Visit(WhileStmtAST &node) { VisitWhileStmt_(&node); }
+void IRGenVisitor::Visit(BreakStmtAST &node) { VisitBreakStmt_(&node); }
+void IRGenVisitor::Visit(ContinueStmtAST &node) { VisitContinueStmt_(&node); }
 void IRGenVisitor::Visit(ReturnStmtAST &node) { VisitReturnStmt_(&node); }
 void IRGenVisitor::Visit(LValAST &node) {}
 void IRGenVisitor::Visit(NumberAST &node) {}

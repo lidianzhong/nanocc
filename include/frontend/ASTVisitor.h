@@ -11,6 +11,8 @@ class AssignStmtAST;
 class ExpStmtAST;
 class IfStmtAST;
 class WhileStmtAST;
+class BreakStmtAST;
+class ContinueStmtAST;
 class ReturnStmtAST;
 class LValAST;
 class NumberAST;
@@ -32,6 +34,8 @@ public:
   virtual void Visit(ExpStmtAST &node) = 0;
   virtual void Visit(IfStmtAST &node) = 0;
   virtual void Visit(WhileStmtAST &node) = 0;
+  virtual void Visit(BreakStmtAST &node) = 0;
+  virtual void Visit(ContinueStmtAST &node) = 0;
   virtual void Visit(ReturnStmtAST &node) = 0;
   virtual void Visit(LValAST &node) = 0;
   virtual void Visit(NumberAST &node) = 0;

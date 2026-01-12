@@ -51,6 +51,8 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 "if"            { return IF; }
 "else"          { return ELSE; }
 "while"         { return WHILE; }
+"break"         { return BREAK; }
+"continue"      { return CONTINUE; }
 
 "<="            { return LE; }
 ">="            { return GE; }

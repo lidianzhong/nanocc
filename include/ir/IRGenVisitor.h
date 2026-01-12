@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 class IRGenVisitor : public ASTVisitor {
 public:
@@ -28,6 +29,8 @@ public:
   void Visit(ExpStmtAST &node) override;
   void Visit(IfStmtAST &node) override;
   void Visit(WhileStmtAST &node) override;
+  void Visit(BreakStmtAST &node) override;
+  void Visit(ContinueStmtAST &node) override;
   void Visit(ReturnStmtAST &node) override;
   void Visit(LValAST &node) override;
   void Visit(NumberAST &node) override;
@@ -38,6 +41,10 @@ private:
   std::unique_ptr<IRModule> module_;
   std::unique_ptr<IRBuilder> builder_;
   std::unique_ptr<SymbolTable> symtab_;
+
+  // 循环相关
+  std::vector<BasicBlock *> break_targets_;
+  std::vector<BasicBlock *> continue_targets_;
 
   void VisitCompUnit_(const CompUnitAST *ast);
   void VisitFuncDef_(const FuncDefAST *ast);
@@ -50,6 +57,8 @@ private:
   void VisitExpStmt_(const ExpStmtAST *ast);
   void VisitIfStmt_(const IfStmtAST *ast);
   void VisitWhileStmt_(const WhileStmtAST *ast);
+  void VisitBreakStmt_(const BreakStmtAST *ast);
+  void VisitContinueStmt_(const ContinueStmtAST *ast);
   void VisitReturnStmt_(const ReturnStmtAST *ast);
 
   Value Eval(BaseAST *ast);

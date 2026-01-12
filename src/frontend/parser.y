@@ -38,7 +38,7 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 /* 关键字 */
-%token INT RETURN CONST IF ELSE WHILE
+%token INT RETURN CONST IF ELSE WHILE BREAK CONTINUE
 /* 标识符与数值 */
 %token <str_val> IDENT
 %token <int_val> INT_CONST
@@ -210,6 +210,8 @@ Stmt
 
 // MatchedStmt ::= IF '(' Exp ')' MatchedStmt ELSE MatchedStmt
 //              | WHILE '(' Exp ')' MatchedStmt
+//              | BREAK ';'
+//              | CONTINUE ';'
 //              | LVal '=' Exp ';'
 //              | [Exp] ';'
 //              | Block
@@ -227,6 +229,14 @@ MatchedStmt
     auto ast = new WhileStmtAST();
     ast->cond = unique_ptr<BaseAST>($3);
     ast->body = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  }
+  | BREAK ';' {
+    auto ast = new BreakStmtAST();
+    $$ = ast;
+  }
+  | CONTINUE ';' {
+    auto ast = new ContinueStmtAST();
     $$ = ast;
   }
   | LVal '=' Exp ';' {
