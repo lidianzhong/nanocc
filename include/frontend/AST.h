@@ -21,7 +21,15 @@ public:
 /// 编译单元
 class CompUnitAST : public BaseAST {
 public:
-  std::unique_ptr<BaseAST> func_def;
+  std::vector<std::unique_ptr<BaseAST>> func_defs;
+  void Accept(ASTVisitor &visitor) override;
+};
+
+/// 函数参数
+class FuncFParamAST : public BaseAST {
+public:
+  std::string btype; // "int"
+  std::string ident;
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -30,7 +38,8 @@ class FuncDefAST : public BaseAST {
 public:
   std::string ret_type;
   std::string ident;
-  std::unique_ptr<BaseAST> block;
+  std::vector<std::unique_ptr<FuncFParamAST>> params;
+  std::unique_ptr<BlockAST> block;
 
   void Accept(ASTVisitor &visitor) override;
 };
@@ -169,7 +178,16 @@ public:
   void Accept(ASTVisitor &visitor) override;
 };
 
+/// 函数调用
+class FuncCallAST : public BaseAST {
+public:
+  std::string ident;
+  std::vector<std::unique_ptr<BaseAST>> args;
+  void Accept(ASTVisitor &visitor) override;
+};
+
 inline void CompUnitAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void FuncFParamAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void FuncDefAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void BlockAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ConstDeclAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
@@ -189,3 +207,4 @@ inline void LValAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void NumberAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void UnaryExpAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void BinaryExpAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void FuncCallAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }

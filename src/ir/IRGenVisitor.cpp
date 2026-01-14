@@ -1,4 +1,5 @@
 #include "ir/IRGenVisitor.h"
+#include "frontend/AST.h"
 #include "frontend/SymbolTable.h"
 #include "ir/IR.h"
 #include "ir/IRBuilder.h"
@@ -6,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 IRGenVisitor::IRGenVisitor()
     : module_(std::make_unique<IRModule>()),
@@ -13,8 +15,8 @@ IRGenVisitor::IRGenVisitor()
       symtab_(std::make_unique<SymbolTable>()) {}
 
 void IRGenVisitor::VisitCompUnit_(const CompUnitAST *ast) {
-  if (ast->func_def) {
-    ast->func_def->Accept(*this);
+  for (auto &func_def : ast->func_defs) {
+    func_def->Accept(*this);
   }
 }
 
@@ -23,25 +25,40 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
     throw std::runtime_error("[Semantic Error]: Duplicate function name " +
                              ast->ident);
   }
-
-  std::string ret_type = ast->ret_type == "int" ? "i32" : "void";
-  Function *new_func = module_->CreateFunction(ast->ident, ret_type);
-
+  std::string ret_type = ast->ret_type == "int" ? "i32" : "";
+  std::string param_type = "i32";
+  std::vector<std::string> param_names;
+  for (auto &param : ast->params) {
+    param_names.push_back(param->ident);
+  }
+  Function *new_func =
+      module_->CreateFunction(ast->ident, ret_type, param_names);
   builder_->SetCurrentFunction(new_func);
+
+  // 将函数名注册到符号表
+  symtab_->Define(ast->ident, ret_type);
+  symtab_->EnterScope();
 
   auto *entry_bb = builder_->CreateBlock("entry");
   new_func->exit_bb = builder_->CreateBlock("exit");
-
   builder_->SetInsertPoint(entry_bb);
+
+  for (auto &param : ast->params) {
+    Value param_addr = builder_->CreateAlloca(param_type, param->ident);
+    builder_->CreateStore(Value::Reg("%" + param->ident), param_addr);
+    symtab_->Define(param->ident, SYMBOL_TYPE_VARIABLE, param_addr.reg_or_addr);
+  }
 
   // 分配返回值变量
   if (ret_type == "i32") {
     Value ret_addr = builder_->CreateAlloca("i32", "ret");
-    symtab_->Define("@ret", SYMBOL_TYPE_VARIABLE, ret_addr);
+    symtab_->Define("@ret", SYMBOL_TYPE_VARIABLE, ret_addr.reg_or_addr);
   }
 
-  // 访问函数的 Block
-  ast->block->Accept(*this);
+  // 访问函数的 Block(不再重复进入作用域)
+  for (auto &stmt : ast->block->items) {
+    stmt->Accept(*this);
+  }
 
   // 确保当前块有终结指令
   if (!builder_->cur_bb_->HasTerminator()) {
@@ -51,15 +68,18 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
   // exit块：加载返回值并返回
   builder_->SetInsertPoint(new_func->exit_bb);
   if (ret_type == "i32") {
-    auto ret_symbol_opt = symtab_->Lookup("@ret");
-    assert(ret_symbol_opt.has_value());
-    Value ret_val = builder_->CreateLoad(ret_symbol_opt->value);
+    auto ret_symbol = symtab_->Lookup("@ret");
+    assert(ret_symbol && "Return symbol not found");
+    assert(ret_symbol->type == SYMBOL_TYPE_VARIABLE &&
+           "Return symbol is not a variable");
+    Value ret_val = Value::Addr(*ret_symbol);
     builder_->CreateReturn(ret_val);
   } else {
     builder_->CreateReturn();
   }
 
   builder_->EndFunction();
+  symtab_->ExitScope();
 }
 
 void IRGenVisitor::VisitBlock_(const BlockAST *ast) {
@@ -93,7 +113,7 @@ void IRGenVisitor::VisitConstDef_(const ConstDefAST *ast) {
     assert(false);
   }
 
-  symtab_->Define(ast->ident, SYMBOL_TYPE_CONSTANT, init_val);
+  symtab_->Define(ast->ident, SYMBOL_TYPE_CONSTANT, init_val.imm);
 }
 
 void IRGenVisitor::VisitVarDecl_(const VarDeclAST *ast) {
@@ -105,7 +125,7 @@ void IRGenVisitor::VisitVarDecl_(const VarDeclAST *ast) {
 void IRGenVisitor::VisitVarDef_(const VarDefAST *ast) {
   // 分配变量
   Value alloc_addr = builder_->CreateAlloca("i32", ast->ident);
-  symtab_->Define(ast->ident, SYMBOL_TYPE_VARIABLE, alloc_addr);
+  symtab_->Define(ast->ident, SYMBOL_TYPE_VARIABLE, alloc_addr.reg_or_addr);
 
   // 初始化
   Value init_val;
@@ -113,11 +133,6 @@ void IRGenVisitor::VisitVarDef_(const VarDefAST *ast) {
     init_val = Eval(ast->init_val.get());
   } else {
     init_val = Value::Imm(0);
-  }
-
-  // 如果是地址，先load
-  if (init_val.isAddress()) {
-    init_val = builder_->CreateLoad(init_val);
   }
 
   builder_->CreateStore(init_val, alloc_addr);
@@ -129,27 +144,22 @@ void IRGenVisitor::VisitAssignStmt_(const AssignStmtAST *ast) {
     return;
   }
 
-  auto symbol_opt = symtab_->Lookup(ast->lval->ident);
-  if (!symbol_opt.has_value()) {
+  auto lval_symbol = symtab_->Lookup(ast->lval->ident);
+  if (!lval_symbol) {
     std::cerr << "symbol not found: " << ast->lval->ident << std::endl;
     assert(false);
   }
 
-  if (symbol_opt->type != SYMBOL_TYPE_VARIABLE) {
+  if (lval_symbol->type != SYMBOL_TYPE_VARIABLE) {
     std::cerr << "cannot assign to non-variable: " << ast->lval->ident
               << std::endl;
     assert(false);
   }
 
-  Value addr = symbol_opt->value;
-  Value val = Eval(ast->exp.get());
+  Value dest_addr = Value::Addr(*lval_symbol);
+  Value src_val = Eval(ast->exp.get());
 
-  // 如果是地址，先load
-  if (val.isAddress()) {
-    val = builder_->CreateLoad(val);
-  }
-
-  builder_->CreateStore(val, addr);
+  builder_->CreateStore(src_val, dest_addr);
 }
 
 void IRGenVisitor::VisitExpStmt_(const ExpStmtAST *ast) {
@@ -253,20 +263,16 @@ void IRGenVisitor::VisitReturnStmt_(const ReturnStmtAST *ast) {
   }
 
   if (ast->exp) {
-    Value val = Eval(ast->exp.get());
+    Value src_val = Eval(ast->exp.get());
 
-    auto ret_symbol_opt = symtab_->Lookup("@ret");
-    if (!ret_symbol_opt.has_value()) {
+    auto ret_symbol = symtab_->Lookup("@ret");
+    if (!ret_symbol) {
       std::cerr << "symbol not found: @ret" << std::endl;
       assert(false);
     }
+    Value dest_addr = Value::Addr(*ret_symbol);
 
-    // 如果是地址，先load
-    if (val.isAddress()) {
-      val = builder_->CreateLoad(val);
-    }
-
-    builder_->CreateStore(val, ret_symbol_opt->value);
+    builder_->CreateStore(src_val, dest_addr);
   }
 
   // 跳转到函数的 exit 块
@@ -286,21 +292,35 @@ Value IRGenVisitor::Eval(BaseAST *ast) {
     return EvalUnaryExp(unary);
   } else if (auto *binary = dynamic_cast<BinaryExpAST *>(ast)) {
     return EvalBinaryExp(binary);
+  } else if (auto *func_call = dynamic_cast<FuncCallAST *>(ast)) {
+    return EvalFuncCall(func_call);
+  } else {
+    std::cerr << "Eval: unsupported expression type" << std::endl;
+    // assert(false);
   }
-  std::cerr << "Eval: unknown expression type" << std::endl;
-  assert(false);
+
   return Value::Imm(0);
 }
 
 Value IRGenVisitor::EvalLVal(LValAST *ast) {
-  auto symbol_opt = symtab_->Lookup(ast->ident);
-  if (!symbol_opt.has_value()) {
+  auto lval_symbol = symtab_->Lookup(ast->ident);
+  if (!lval_symbol) {
     std::cerr << "symbol not found: " << ast->ident << std::endl;
+    assert(false);
+  }
+  Value val;
+  if (lval_symbol->type == SYMBOL_TYPE_CONSTANT) {
+    val = Value::Imm(*lval_symbol);
+  } else if (lval_symbol->type == SYMBOL_TYPE_VARIABLE) {
+    val = Value::Addr(*lval_symbol);
+  } else {
+    std::cerr << "unsupported lval symbol type for: " << ast->ident
+              << std::endl;
     assert(false);
   }
 
   // 常量直接返回立即数，变量返回地址
-  return symbol_opt->value;
+  return val;
 }
 
 Value IRGenVisitor::EvalNumber(NumberAST *ast) { return Value::Imm(ast->val); }
@@ -373,6 +393,28 @@ Value IRGenVisitor::EvalBinaryExp(BinaryExpAST *ast) {
   return builder_->CreateBinaryOp(ast->op, lhs, rhs);
 }
 
+Value IRGenVisitor::EvalFuncCall(FuncCallAST *ast) {
+  Function *func = module_->GetFunction(ast->ident);
+  if (!func) {
+    std::cerr << "function not found: " << ast->ident << std::endl;
+    assert(false);
+  }
+
+  std::vector<Value> arg_values;
+  for (auto &arg_exp : ast->args) {
+    Value arg_val = Eval(arg_exp.get());
+    arg_values.push_back(arg_val);
+  }
+
+  Value ret_reg;
+  if (func->ret_type == "i32") {
+    ret_reg = builder_->CreateCall(func->name, arg_values, true);
+  } else {
+    builder_->CreateCall(func->name, arg_values, false);
+  }
+  return ret_reg;
+}
+
 /**
  * 逻辑与的返回值一定是 i32 类型的立即数
  */
@@ -421,6 +463,7 @@ Value IRGenVisitor::EvalLogicalOr(BinaryExpAST *ast) {
 // ==================== Visitor接口实现 ====================
 
 void IRGenVisitor::Visit(CompUnitAST &node) { VisitCompUnit_(&node); }
+void IRGenVisitor::Visit(FuncFParamAST &node) {}
 void IRGenVisitor::Visit(FuncDefAST &node) { VisitFuncDef_(&node); }
 void IRGenVisitor::Visit(BlockAST &node) { VisitBlock_(&node); }
 void IRGenVisitor::Visit(ConstDeclAST &node) { VisitConstDecl_(&node); }
@@ -438,3 +481,4 @@ void IRGenVisitor::Visit(LValAST &node) {}
 void IRGenVisitor::Visit(NumberAST &node) {}
 void IRGenVisitor::Visit(UnaryExpAST &node) {}
 void IRGenVisitor::Visit(BinaryExpAST &node) {}
+void IRGenVisitor::Visit(FuncCallAST &node) {}

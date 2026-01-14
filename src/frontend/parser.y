@@ -34,11 +34,12 @@ using namespace std;
   int int_val;
   BaseAST *ast_val;
   std::vector<std::unique_ptr<BaseAST>> *ast_list;
+  std::vector<std::unique_ptr<FuncFParamAST>> *param_list;
 }
 
 // lexer 返回的所有 token 种类的声明
 /* 关键字 */
-%token INT RETURN CONST IF ELSE WHILE BREAK CONTINUE
+%token INT RETURN CONST IF ELSE WHILE BREAK CONTINUE VOID
 /* 标识符与数值 */
 %token <str_val> IDENT
 %token <int_val> INT_CONST
@@ -47,21 +48,28 @@ using namespace std;
 %token AND OR       /* &&, || */
 
 // 非终结符的类型定义
-%type <ast_val> Decl ConstDecl VarDecl ConstDef VarDef ConstInitVal InitVal
-%type <ast_val> FuncDef Block BlockItem Stmt MatchedStmt UnMatchedStmt
+%type <ast_val> CompUnit Decl ConstDecl VarDecl ConstDef VarDef ConstInitVal InitVal
+%type <ast_val> FuncFParam FuncDef Block BlockItem Stmt MatchedStmt UnMatchedStmt
 %type <ast_val> Exp LVal PrimaryExp Number UnaryExp
 %type <ast_val> MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <str_val> BType FuncType UnaryOp
-%type <ast_list> ConstDefList VarDefList BlockItemList
+%type <ast_list> ConstDefList VarDefList BlockItemList FuncRParams
+%type <param_list> FuncFParams
 
 %%
 
-// CompUnit ::= FuncDef
+// CompUnit ::= [CompUnit] FuncDef
 CompUnit
-  : FuncDef {
-    auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
-    ast = std::move(comp_unit);
+  : CompUnit FuncDef {
+    auto comp_unit = static_cast<CompUnitAST*>($1);
+    comp_unit->func_defs.push_back(unique_ptr<BaseAST>($2));
+    $$ = comp_unit;
+  }
+  | FuncDef {
+    auto comp_unit = new CompUnitAST();
+    comp_unit->func_defs.push_back(unique_ptr<BaseAST>($1));
+    $$ = comp_unit;
+    ast.reset(comp_unit);
   }
   ;
 
@@ -158,20 +166,56 @@ InitVal
   : Exp { $$ = $1; }
   ;
 
-// FuncDef ::= FuncType IDENT "(" ")" Block
-FuncDef
-  : FuncType IDENT '(' ')' Block {
-    auto ast = new FuncDefAST();
-    ast->ret_type = *unique_ptr<string>($1);
+// FuncFParam ::= BType IDENT
+FuncFParam
+  : BType IDENT {
+    auto ast = new FuncFParamAST();
+    ast->btype = *unique_ptr<string>($1);
     ast->ident = *unique_ptr<string>($2);
-    ast->block = unique_ptr<BaseAST>($5);
     $$ = ast;
   }
   ;
 
-// FuncType ::= "int"
+// FuncFParams ::= FuncFParam {"," FuncFParam}
+FuncFParams
+  : FuncFParam {
+    auto vec = new std::vector<std::unique_ptr<FuncFParamAST>>();
+    vec->push_back(std::unique_ptr<FuncFParamAST>(static_cast<FuncFParamAST *>($1)));
+    $$ = vec;
+  }
+  | FuncFParams ',' FuncFParam {
+    $1->push_back(std::unique_ptr<FuncFParamAST>(static_cast<FuncFParamAST *>($3)));
+    $$ = $1;
+  }
+  ;
+
+// FuncDef ::= FuncType IDENT "(" [FuncFParams] ")" Block
+FuncDef
+  : FuncType IDENT '(' FuncFParams ')' Block {
+    auto ast = new FuncDefAST();
+    ast->ret_type = *unique_ptr<string>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->params = std::move(*$4);
+    delete $4;
+    ast->block = std::unique_ptr<BlockAST>(static_cast<BlockAST *>($6));
+    $$ = ast;
+  }
+  | FuncType IDENT '(' ')' Block {
+    auto ast = new FuncDefAST();
+    ast->ret_type = *unique_ptr<string>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->params.clear();
+    ast->block = std::unique_ptr<BlockAST>(static_cast<BlockAST *>($5));
+    $$ = ast;
+  }
+  ;
+
+// FuncType ::= "void" | "int"
 FuncType
-  : INT {
+  : VOID {
+    $$ = new string("void");
+  }
+  | INT {
     $$ = new string("int");
   }
   ;
@@ -319,13 +363,39 @@ Number
   }
   ;
 
-// UnaryExp ::= PrimaryExp | UnaryOp UnaryExp
+// FuncRParams ::= Exp {"," Exp}
+FuncRParams
+  : Exp {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncRParams ',' Exp {
+    $1->push_back(unique_ptr<BaseAST>($3));
+    $$ = $1;
+  }
+  ;
+
+// UnaryExp ::= PrimaryExp | UnaryOp UnaryExp | IDENT "(" [FuncRParams] ")"
 UnaryExp
   : PrimaryExp { $$ = $1; }
   | UnaryOp UnaryExp {
     auto ast = new UnaryExpAST();
     ast->op = *unique_ptr<string>($1);
     ast->exp = unique_ptr<BaseAST>($2);
+    $$ = ast;
+  }
+  | IDENT '(' ')' {
+    auto ast = new FuncCallAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->args = std::vector<std::unique_ptr<BaseAST>>();
+    $$ = ast;
+  }
+  | IDENT '(' FuncRParams ')' {
+    auto ast = new FuncCallAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->args = std::move(*$3);
+    delete $3;
     $$ = ast;
   }
   ;

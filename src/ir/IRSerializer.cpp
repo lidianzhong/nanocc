@@ -134,7 +134,28 @@ static std::string InstructionToString(const Instruction &inst) {
     }
     break;
   case Opcode::Call:
-    // TODO: 函数调用
+    if (inst.args.size() == 3) {
+      // ret_reg = call func_name, args
+      oss << "  " << OperandToString(inst.args[0]) << " = call "
+          << std::get<std::string>(inst.args[1]) << "(";
+      const auto &arg_values = std::get<std::vector<Value>>(inst.args[2]);
+      for (size_t i = 0; i < arg_values.size(); i++) {
+        if (i > 0)
+          oss << ", ";
+        oss << arg_values[i].toString();
+      }
+      oss << ")";
+    } else {
+      // call func_name, args
+      oss << "  call " << std::get<std::string>(inst.args[0]) << "(";
+      const auto &arg_values = std::get<std::vector<Value>>(inst.args[1]);
+      for (size_t i = 0; i < arg_values.size(); i++) {
+        if (i > 0)
+          oss << ", ";
+        oss << arg_values[i].toString();
+      }
+      oss << ")";
+    }
     break;
   }
 
@@ -163,7 +184,17 @@ static std::string FunctionToString(const Function &func) {
   std::ostringstream oss;
 
   // 函数头
-  oss << "fun @" << func.name << "(): " << func.ret_type << " {\n";
+  oss << "fun " << func.name << "(";
+  for (size_t i = 0; i < func.param_names.size(); i++) {
+    if (i > 0)
+      oss << ", ";
+    oss << func.param_names[i] << ": i32";
+  }
+  if (func.ret_type.empty()) {
+    oss << ") {\n";
+  } else {
+    oss << "): " << func.ret_type << " {\n";
+  }
 
   // 遍历所有基本块
   for (const auto &bb : func.blocks) {
@@ -183,7 +214,7 @@ static std::string FunctionToString(const Function &func) {
 std::string ToIR(const IRModule &module) {
   std::ostringstream oss;
 
-  for (const auto &[name, func] : module.GetFunctions()) {
+  for (const auto &func : module.GetFunctions()) {
     oss << FunctionToString(*func);
   }
 

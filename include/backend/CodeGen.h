@@ -3,9 +3,6 @@
 #include "FrameInfo.h"
 #include "koopa.h"
 
-#include <map>
-#include <string>
-
 class ProgramCodeGen {
 public:
   ProgramCodeGen() = default;

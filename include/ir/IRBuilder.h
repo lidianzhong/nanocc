@@ -21,7 +21,8 @@ public:
         std::make_unique<Instruction>(op, std::forward<T>(args)...));
   }
 
-  Value CreateAlloca(const std::string &type, const std::string &var_name = "");
+  Value CreateAlloca(const std::string &type, const std::string &var_name = "",
+                     bool unique = true);
   Value CreateLoad(const Value &addr);
   void CreateStore(const Value &value, const Value &addr);
 
@@ -36,13 +37,16 @@ public:
   Value CreateBinaryOp(const std::string &op, const Value &lhs,
                        const Value &rhs);
 
+  Value CreateCall(const std::string &func_name, const std::vector<Value> &args,
+                   bool has_return);
+
 public:
   Function *cur_func_ = nullptr;
   BasicBlock *cur_bb_ = nullptr;
 
 private:
   Value NewTempReg_();
-  Value NewTempAddr_(const std::string &addr_name = "");
+  Value NewTempAddr_(const std::string &addr_name = "", bool unique = true);
   std::string NewTempLabel_(const std::string &prefix = "");
 
   int temp_reg_id_ = 0;

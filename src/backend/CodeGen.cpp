@@ -35,6 +35,38 @@ void FunctionCodeGen::Emit(const koopa_raw_function_t &func) {
   AllocateStackSpace();
   EmitPrologue();
 
+  // 使用 func_->params 来处理函数参数，确保与 AllocateStackSpace 一致
+  for (size_t i = 0; i < func_->params.len; ++i) {
+    koopa_raw_value_t param = (koopa_raw_value_t)func_->params.buffer[i];
+    size_t offset = GetStackOffset(param);
+    if (i < 8) {
+      if (offset < 2048)
+        std::cout << "  sw a" << i << ", " << offset << "(sp)" << std::endl;
+      else {
+        std::cout << "  li t0, " << offset << std::endl;
+        std::cout << "  add t0, sp, t0" << std::endl;
+        std::cout << "  sw a" << i << ", (t0)" << std::endl;
+      }
+    } else {
+      size_t stack_size = stack_frame_.GetStackSize();
+      size_t src_offset = stack_size + (i - 8) * 4;
+      if (src_offset < 2048) {
+        std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
+      } else {
+        std::cout << "  li t0, " << src_offset << std::endl;
+        std::cout << "  add t0, sp, t0" << std::endl;
+        std::cout << "  lw t0, (t0)" << std::endl;
+      }
+      if (offset < 2048) {
+        std::cout << "  sw t0, " << offset << "(sp)" << std::endl;
+      } else {
+        std::cout << "  li t1, " << offset << std::endl;
+        std::cout << "  add t1, sp, t1" << std::endl;
+        std::cout << "  sw t0, (t1)" << std::endl;
+      }
+    }
+  }
+
   EmitSlice(func_->bbs);
 
   EmitEpilogue();
@@ -62,13 +94,48 @@ void FunctionCodeGen::EmitSlice(const koopa_raw_slice_t &slice) {
 
 void FunctionCodeGen::EmitPrologue() {
   int size = static_cast<int>(stack_frame_.GetStackSize());
-  std::cout << "  addi sp, sp, " << -size << std::endl;
+  if (size >= -2048 && size <= 2047) {
+    std::cout << "  addi sp, sp, " << -size << std::endl;
+  } else {
+    std::cout << "  li t0, " << -size << std::endl;
+    std::cout << "  add sp, sp, t0" << std::endl;
+  }
+
+  if (stack_frame_.HasCall()) {
+    int ra_offset = size - 4;
+    if (ra_offset >= -2048 && ra_offset <= 2047) {
+      std::cout << "  sw ra, " << ra_offset << "(sp)" << std::endl;
+    } else {
+      std::cout << "  li t0, " << ra_offset << std::endl;
+      std::cout << "  add t0, sp, t0" << std::endl;
+      std::cout << "  sw ra, (t0)" << std::endl;
+    }
+  }
 }
 
 void FunctionCodeGen::EmitEpilogue() {
+  std::string label_name = std::string(func_->name).substr(1) + "_epilogue";
+  std::cout << label_name << ":" << std::endl;
+
   int size = static_cast<int>(stack_frame_.GetStackSize());
-  std::cout << "epilogue:" << std::endl;
-  std::cout << "  addi sp, sp, " << size << std::endl;
+  if (stack_frame_.HasCall()) {
+    int ra_offset = size - 4;
+    if (ra_offset >= -2048 && ra_offset <= 2047) {
+      std::cout << "  lw ra, " << ra_offset << "(sp)" << std::endl;
+    } else {
+      std::cout << "  li t0, " << ra_offset << std::endl;
+      std::cout << "  add t0, sp, t0" << std::endl;
+      std::cout << "  lw ra, (t0)" << std::endl;
+    }
+  }
+
+  if (size >= -2048 && size <= 2047) {
+    std::cout << "  addi sp, sp, " << size << std::endl;
+  } else {
+    std::cout << "  li t0, " << size << std::endl;
+    std::cout << "  add sp, sp, t0" << std::endl;
+  }
+
   std::cout << "  ret" << std::endl;
 }
 
@@ -85,21 +152,23 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
   const auto &kind = value->kind;
   switch (kind.tag) {
   case KOOPA_RVT_RETURN: {
-
-    switch (kind.data.ret.value->kind.tag) {
-    case KOOPA_RVT_INTEGER:
-      // 整数常量直接放到 a0
-      std::cout << "  li a0, " << kind.data.ret.value->kind.data.integer.value
-                << std::endl;
-      break;
-    default: {
-      // 其他值从栈中加载到 a0
-      size_t ret_offset = GetStackOffset(kind.data.ret.value);
-      std::cout << "  lw a0, " << ret_offset << "(sp)" << std::endl;
+    if (kind.data.ret.value) {
+      switch (kind.data.ret.value->kind.tag) {
+      case KOOPA_RVT_INTEGER:
+        // 整数常量直接放到 a0
+        std::cout << "  li a0, " << kind.data.ret.value->kind.data.integer.value
+                  << std::endl;
+        break;
+      default: {
+        // 其他值从栈中加载到 a0
+        size_t ret_offset = GetStackOffset(kind.data.ret.value);
+        std::cout << "  lw a0, " << ret_offset << "(sp)" << std::endl;
+      }
+      }
     }
-    }
 
-    std::cout << "  j epilogue" << std::endl;
+    std::string label_name = std::string(func_->name).substr(1) + "_epilogue";
+    std::cout << "  j " << label_name << std::endl;
 
     break;
   }
@@ -221,8 +290,14 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
       break;
     }
 
-    size_t dest_offset = GetStackOffset(store.dest);
-    std::cout << "  sw t0, " << dest_offset << "(sp)" << std::endl;
+    if (store.dest->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+      std::string name = store.dest->name + 1;
+      std::cout << "  la t1, " << name << std::endl;
+      std::cout << "  sw t0, 0(t1)" << std::endl;
+    } else {
+      size_t dest_offset = GetStackOffset(store.dest);
+      std::cout << "  sw t0, " << dest_offset << "(sp)" << std::endl;
+    }
     break;
   }
   case KOOPA_RVT_BRANCH: {
@@ -260,6 +335,52 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     break;
   }
 
+  case KOOPA_RVT_CALL: {
+    const auto &call = kind.data.call;
+    for (size_t i = 0; i < call.args.len; ++i) {
+      koopa_raw_value_t arg = (koopa_raw_value_t)call.args.buffer[i];
+      if (arg->kind.tag == KOOPA_RVT_INTEGER) {
+        std::cout << "  li t0, " << arg->kind.data.integer.value << std::endl;
+      } else {
+        size_t offset = GetStackOffset(arg);
+        if (offset < 2048) {
+          std::cout << "  lw t0, " << offset << "(sp)" << std::endl;
+        } else {
+          std::cout << "  li t1, " << offset << std::endl;
+          std::cout << "  add t1, sp, t1" << std::endl;
+          std::cout << "  lw t0, (t1)" << std::endl;
+        }
+      }
+
+      if (i < 8) {
+        std::cout << "  mv a" << i << ", t0" << std::endl;
+      } else {
+        int slot_offset = (i - 8) * 4;
+        if (slot_offset < 2048) {
+          std::cout << "  sw t0, " << slot_offset << "(sp)" << std::endl;
+        } else {
+          std::cout << "  li t1, " << slot_offset << std::endl;
+          std::cout << "  add t1, sp, t1" << std::endl;
+          std::cout << "  sw t0, (t1)" << std::endl;
+        }
+      }
+    }
+
+    std::cout << "  call " << (call.callee->name + 1) << std::endl;
+
+    if (value->ty->tag != KOOPA_RTT_UNIT) {
+      size_t offset = GetStackOffset(value);
+      if (offset < 2048) {
+        std::cout << "  sw a0, " << offset << "(sp)" << std::endl;
+      } else {
+        std::cout << "  li t1, " << offset << std::endl;
+        std::cout << "  add t1, sp, t1" << std::endl;
+        std::cout << "  sw a0, (t1)" << std::endl;
+      }
+    }
+    break;
+  }
+
   default:
     std::cerr << "Error: Unsupported value kind: " << kind.tag << std::endl;
     assert(false);
@@ -268,32 +389,57 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
   std::cout << std::endl;
 }
 
+/**
+  * 分配栈帧空间
+  1. ra 寄存器
+  2. 局部变量 (包括块参数和有返回值的指令)
+  3. 传参空间
+*/
 void FunctionCodeGen::AllocateStackSpace() {
+  int max_args = 0;
+  bool has_call = false;
+
   koopa_raw_slice_t bbs = func_->bbs;
   for (size_t i = 0; i < bbs.len; ++i) {
     koopa_raw_basic_block_t bb = (koopa_raw_basic_block_t)bbs.buffer[i];
+    koopa_raw_slice_t insts = bb->insts;
+    for (size_t j = 0; j < insts.len; ++j) {
+      koopa_raw_value_t inst = (koopa_raw_value_t)insts.buffer[j];
+      if (inst->kind.tag == KOOPA_RVT_CALL) {
+        has_call = true;
+        int args_len = inst->kind.data.call.args.len;
+        if (args_len > max_args)
+          max_args = args_len;
+      }
+    }
+  }
 
-    // 分配块参数的栈空间
+  stack_frame_.Init(max_args, has_call);
+
+  // 为函数参数分配空间
+  for (size_t i = 0; i < func_->params.len; ++i) {
+    koopa_raw_value_t param = (koopa_raw_value_t)func_->params.buffer[i];
+    stack_frame_.AllocSlot(param);
+  }
+
+  for (size_t i = 0; i < bbs.len; ++i) {
+    koopa_raw_basic_block_t bb = (koopa_raw_basic_block_t)bbs.buffer[i];
     koopa_raw_slice_t params = bb->params;
+    // 为块参数分配空间
     for (size_t j = 0; j < params.len; ++j) {
       koopa_raw_value_t param = (koopa_raw_value_t)params.buffer[j];
       stack_frame_.AllocSlot(param);
     }
-
-    // 分配指令的栈空间
+    // 为有返回值的指令分配空间
     koopa_raw_slice_t insts = bb->insts;
     for (size_t j = 0; j < insts.len; ++j) {
       koopa_raw_value_t inst = (koopa_raw_value_t)insts.buffer[j];
-
-      koopa_raw_type_tag_t tag = inst->ty->tag;
-      // 没有返回值的指令不分配栈空间
-      if (tag == KOOPA_RTT_UNIT)
-        continue;
-
-      stack_frame_.AllocSlot(inst);
+      if (inst->ty->tag != KOOPA_RTT_UNIT) {
+        stack_frame_.AllocSlot(inst);
+      }
     }
   }
-  stack_frame_.Align();
+  stack_frame_.Finalize();
 }
 
 size_t FunctionCodeGen::GetStackOffset(koopa_raw_value_t val) {

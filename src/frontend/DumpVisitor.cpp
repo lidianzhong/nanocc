@@ -36,17 +36,37 @@ void DumpVisitor::print_node(const std::string &name) {
 void DumpVisitor::Visit(CompUnitAST &node) {
   print_node("CompUnitAST");
   IndentGuard _{indent_level};
-  if (node.func_def)
-    node.func_def->Accept(*this);
+  for (auto &func_def : node.func_defs) {
+    if (func_def)
+      func_def->Accept(*this);
+  }
+}
+
+void DumpVisitor::Visit(FuncFParamAST &node) {
+  print_indent();
+  out_file << "FuncFParamAST { BType: " << node.btype
+           << ", Ident: " << node.ident << " }" << std::endl;
 }
 
 void DumpVisitor::Visit(FuncDefAST &node) {
-  print_node("FuncDefAST");
+  print_indent();
+  out_file << "FuncDefAST { Ident: " << node.ident
+           << ", RetType: " << node.ret_type << " }" << std::endl;
+
   IndentGuard _{indent_level};
+  if (!node.params.empty()) {
+    print_indent();
+    out_file << "Params:" << std::endl;
+    IndentGuard _t{indent_level};
+    for (auto &param : node.params) {
+      if (param)
+        param->Accept(*this);
+    }
+  }
+
   print_indent();
-  out_file << "RetType: " << node.ret_type << std::endl;
-  print_indent();
-  out_file << "Ident: " << node.ident << std::endl;
+  out_file << "Block:" << std::endl;
+  IndentGuard _b{indent_level};
   if (node.block)
     node.block->Accept(*this);
 }
@@ -61,10 +81,9 @@ void DumpVisitor::Visit(BlockAST &node) {
 }
 
 void DumpVisitor::Visit(ConstDeclAST &node) {
-  print_node("ConstDeclAST");
-  IndentGuard _{indent_level};
   print_indent();
-  out_file << "BType: " << node.btype << std::endl;
+  out_file << "ConstDeclAST { BType: " << node.btype << " }" << std::endl;
+  IndentGuard _{indent_level};
   for (auto &def : node.const_defs) {
     if (def)
       def->Accept(*this);
@@ -72,19 +91,17 @@ void DumpVisitor::Visit(ConstDeclAST &node) {
 }
 
 void DumpVisitor::Visit(ConstDefAST &node) {
-  print_node("ConstDefAST");
-  IndentGuard _{indent_level};
   print_indent();
-  out_file << "Ident: " << node.ident << std::endl;
+  out_file << "ConstDefAST { Ident: " << node.ident << " }" << std::endl;
+  IndentGuard _{indent_level};
   if (node.init_val)
     node.init_val->Accept(*this);
 }
 
 void DumpVisitor::Visit(VarDeclAST &node) {
-  print_node("VarDeclAST");
-  IndentGuard _{indent_level};
   print_indent();
-  out_file << "BType: " << node.btype << std::endl;
+  out_file << "VarDeclAST { BType: " << node.btype << " }" << std::endl;
+  IndentGuard _{indent_level};
   for (auto &def : node.var_defs) {
     if (def)
       def->Accept(*this);
@@ -92,10 +109,9 @@ void DumpVisitor::Visit(VarDeclAST &node) {
 }
 
 void DumpVisitor::Visit(VarDefAST &node) {
-  print_node("VarDefAST");
-  IndentGuard _{indent_level};
   print_indent();
-  out_file << "Ident: " << node.ident << std::endl;
+  out_file << "VarDefAST { Ident: " << node.ident << " }" << std::endl;
+  IndentGuard _{indent_level};
   if (node.init_val)
     node.init_val->Accept(*this);
 }
@@ -155,30 +171,38 @@ void DumpVisitor::Visit(ReturnStmtAST &node) {
 
 void DumpVisitor::Visit(LValAST &node) {
   print_indent();
-  out_file << "LValAST Ident: " << node.ident << std::endl;
+  out_file << "LValAST { Ident: " << node.ident << " }" << std::endl;
 }
 
 void DumpVisitor::Visit(NumberAST &node) {
   print_indent();
-  out_file << "NumberAST Val: " << node.val << std::endl;
+  out_file << "NumberAST { Val: " << node.val << " }" << std::endl;
 }
 
 void DumpVisitor::Visit(UnaryExpAST &node) {
-  print_node("UnaryExpAST");
-  IndentGuard _{indent_level};
   print_indent();
-  out_file << "Op: " << node.op << std::endl;
+  out_file << "UnaryExpAST { Op: " << node.op << " }" << std::endl;
+  IndentGuard _{indent_level};
   if (node.exp)
     node.exp->Accept(*this);
 }
 
 void DumpVisitor::Visit(BinaryExpAST &node) {
-  print_node("BinaryExpAST");
-  IndentGuard _{indent_level};
   print_indent();
-  out_file << "Op: " << node.op << std::endl;
+  out_file << "BinaryExpAST { Op: " << node.op << " }" << std::endl;
+  IndentGuard _{indent_level};
   if (node.lhs)
     node.lhs->Accept(*this);
   if (node.rhs)
     node.rhs->Accept(*this);
+}
+
+void DumpVisitor::Visit(FuncCallAST &node) {
+  print_indent();
+  out_file << "FuncCallAST { Ident: " << node.ident << " }" << std::endl;
+  IndentGuard _{indent_level};
+  for (auto &arg : node.args) {
+    if (arg)
+      arg->Accept(*this);
+  }
 }

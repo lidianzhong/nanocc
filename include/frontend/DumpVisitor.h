@@ -11,6 +11,7 @@ public:
   ~DumpVisitor();
 
   void Visit(CompUnitAST &node) override;
+  void Visit(FuncFParamAST &node) override;
   void Visit(FuncDefAST &node) override;
   void Visit(BlockAST &node) override;
   void Visit(ConstDeclAST &node) override;
@@ -28,6 +29,7 @@ public:
   void Visit(NumberAST &node) override;
   void Visit(UnaryExpAST &node) override;
   void Visit(BinaryExpAST &node) override;
+  void Visit(FuncCallAST &node) override;
 
 private:
   int indent_level = 0;

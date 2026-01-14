@@ -2,29 +2,35 @@
 
 #include "ir/IR.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 class IRModule {
 private:
-  std::unordered_map<std::string, std::unique_ptr<Function>> funcs_;
+  std::vector<std::unique_ptr<Function>> funcs_;
 
 public:
   // 创建并存储函数，返回裸指针供后续使用
-  Function *CreateFunction(const std::string &name,
-                           const std::string &ret_type) {
-    auto func = std::make_unique<Function>(name, ret_type);
+  Function *CreateFunction(const std::string &name, const std::string &ret_type,
+                           const std::vector<std::string> &param_names) {
+    auto func = std::make_unique<Function>(name, ret_type, param_names);
     Function *ptr = func.get();
-    funcs_[name] = std::move(func);
+    funcs_.push_back(std::move(func));
     return ptr;
   }
 
   Function *GetFunction(const std::string &func_name) {
-    auto it = funcs_.find(func_name);
-    return it != funcs_.end() ? it->second.get() : nullptr;
+    auto it = std::find_if(funcs_.begin(), funcs_.end(),
+                           [&](const std::unique_ptr<Function> &f) {
+                             return f->name == "@" + func_name; // TODO
+                           });
+
+    return (it != funcs_.end()) ? it->get() : nullptr;
   }
 
   // 提供访问所有函数的接口
-  const auto &GetFunctions() const { return funcs_; }
+  const std::vector<std::unique_ptr<Function>> &GetFunctions() const {
+    return funcs_;
+  }
 };

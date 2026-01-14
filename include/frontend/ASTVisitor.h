@@ -1,6 +1,7 @@
 #pragma once
 
 class CompUnitAST;
+class FuncFParamAST;
 class FuncDefAST;
 class BlockAST;
 class ConstDeclAST;
@@ -18,12 +19,14 @@ class LValAST;
 class NumberAST;
 class UnaryExpAST;
 class BinaryExpAST;
+class FuncCallAST;
 
 class ASTVisitor {
 public:
   virtual ~ASTVisitor() = default;
 
   virtual void Visit(CompUnitAST &node) = 0;
+  virtual void Visit(FuncFParamAST &node) = 0;
   virtual void Visit(FuncDefAST &node) = 0;
   virtual void Visit(BlockAST &node) = 0;
   virtual void Visit(ConstDeclAST &node) = 0;
@@ -41,4 +44,5 @@ public:
   virtual void Visit(NumberAST &node) = 0;
   virtual void Visit(UnaryExpAST &node) = 0;
   virtual void Visit(BinaryExpAST &node) = 0;
+  virtual void Visit(FuncCallAST &node) = 0;
 };

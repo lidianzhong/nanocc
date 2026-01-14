@@ -8,7 +8,6 @@
 #include "ir/IRModule.h"
 
 #include <memory>
-#include <string>
 #include <vector>
 
 class IRGenVisitor : public ASTVisitor {
@@ -19,6 +18,7 @@ public:
   const IRModule &GetModule() const { return *module_; }
 
   void Visit(CompUnitAST &node) override;
+  void Visit(FuncFParamAST &node) override;
   void Visit(FuncDefAST &node) override;
   void Visit(BlockAST &node) override;
   void Visit(ConstDeclAST &node) override;
@@ -36,6 +36,7 @@ public:
   void Visit(NumberAST &node) override;
   void Visit(UnaryExpAST &node) override;
   void Visit(BinaryExpAST &node) override;
+  void Visit(FuncCallAST &node) override;
 
 private:
   std::unique_ptr<IRModule> module_;
@@ -47,6 +48,7 @@ private:
   std::vector<BasicBlock *> continue_targets_;
 
   void VisitCompUnit_(const CompUnitAST *ast);
+  void VisitFuncFParam_(const FuncFParamAST *ast);
   void VisitFuncDef_(const FuncDefAST *ast);
   void VisitBlock_(const BlockAST *ast);
   void VisitConstDecl_(const ConstDeclAST *ast);
@@ -66,6 +68,7 @@ private:
   Value EvalNumber(NumberAST *ast);
   Value EvalUnaryExp(UnaryExpAST *ast);
   Value EvalBinaryExp(BinaryExpAST *ast);
+  Value EvalFuncCall(FuncCallAST *ast);
 
   Value EvalLogicalAnd(BinaryExpAST *ast);
   Value EvalLogicalOr(BinaryExpAST *ast);

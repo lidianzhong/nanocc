@@ -22,8 +22,8 @@ void IRBuilder::SetInsertPoint(BasicBlock *bb) { cur_bb_ = bb; }
  * @addr = alloc type
  */
 Value IRBuilder::CreateAlloca(const std::string &type,
-                              const std::string &var_name) {
-  Value addr = NewTempAddr_(var_name);
+                              const std::string &var_name, bool unique) {
+  Value addr = NewTempAddr_(var_name, unique);
   Emit(Opcode::Alloc, addr);
   return addr;
 }
@@ -42,10 +42,16 @@ Value IRBuilder::CreateLoad(const Value &addr) {
  * store (imm | @reg), @addr
  */
 void IRBuilder::CreateStore(const Value &value, const Value &addr) {
-  assert((value.isImmediate() || value.isRegister()) &&
-         "CreateStore expects an immediate or register value");
   assert(addr.isAddress() && "CreateStore expects an address");
-  Emit(Opcode::Store, value, addr);
+
+  Value src_val = value;
+
+  // 如果是地址，先load
+  if (value.isAddress()) {
+    src_val = CreateLoad(value);
+  }
+
+  Emit(Opcode::Store, src_val, addr);
 }
 
 /**
@@ -83,9 +89,18 @@ void IRBuilder::CreateJump(BasicBlock *target_bb,
 }
 
 /**
- * ret (imm | @reg)
+ * ret (imm | @reg | @addr)
  */
-void IRBuilder::CreateReturn(const Value &value) { Emit(Opcode::Ret, value); }
+void IRBuilder::CreateReturn(const Value &value) {
+  Value ret_val = value;
+
+  if (value.isAddress()) {
+    // 如果是地址，先load
+    ret_val = CreateLoad(value);
+  }
+
+  Emit(Opcode::Ret, ret_val);
+}
 
 /**
  * ret
@@ -187,14 +202,31 @@ Value IRBuilder::CreateBinaryOp(const std::string &op, const Value &lhs,
   return res_reg;
 }
 
+Value IRBuilder::CreateCall(const std::string &func_name,
+                            const std::vector<Value> &args, bool has_return) {
+  if (has_return) {
+    Value ret_reg = NewTempReg_();
+    Emit(Opcode::Call, ret_reg, func_name, args);
+    return ret_reg;
+  } else {
+    Emit(Opcode::Call, func_name, args);
+    return Value::Reg(""); // undefined
+  }
+}
+
 Value IRBuilder::NewTempReg_() {
   return Value::Reg("%" + std::to_string(temp_reg_id_++));
 }
 
-Value IRBuilder::NewTempAddr_(const std::string &addr_name) {
+Value IRBuilder::NewTempAddr_(const std::string &addr_name, bool unique) {
   assert(!addr_name.empty() && "new addr name cannot be empty");
-  return Value::Addr("@" + addr_name + "_" +
-                     std::to_string(++temp_addr_counters_[addr_name]));
+  std::string final_name = addr_name;
+  if (unique) {
+    int &counter = temp_addr_counters_[addr_name];
+    final_name = addr_name + "_" + std::to_string(++counter);
+    ;
+  }
+  return Value::Addr("@" + final_name);
 }
 
 std::string IRBuilder::NewTempLabel_(const std::string &prefix) {

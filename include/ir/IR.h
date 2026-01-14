@@ -1,7 +1,5 @@
 #pragma once
 
-#include "koopa.h"
-
 #include <memory>
 #include <string>
 #include <variant>
@@ -42,6 +40,7 @@ enum class ValueKind {
   Address,   // address
 };
 
+struct symbol_t;
 struct BasicBlock;
 struct Function;
 
@@ -54,19 +53,14 @@ struct Value {
   bool isRegister() const { return kind == ValueKind::Register; }
   bool isAddress() const { return kind == ValueKind::Address; }
 
-  std::string toString() const {
-    if (kind == ValueKind::Immediate)
-      return std::to_string(imm);
-    return reg_or_addr;
-  }
+  std::string toString() const;
 
-  static Value Imm(int32_t imm) { return {ValueKind::Immediate, "", imm}; }
-  static Value Reg(std::string reg_or_addr) {
-    return {ValueKind::Register, reg_or_addr, 0};
-  }
-  static Value Addr(std::string reg_or_addr) {
-    return {ValueKind::Address, reg_or_addr, 0};
-  }
+  static Value Imm(int32_t imm);
+  static Value Reg(std::string reg_or_addr);
+  static Value Addr(std::string reg_or_addr);
+
+  static Value Imm(const symbol_t &symbol);
+  static Value Addr(const symbol_t &symbol);
 };
 
 struct BranchTarget {
@@ -77,7 +71,8 @@ struct BranchTarget {
       : target(bb), args(std::move(arguments)) {}
 };
 
-using Operand = std::variant<Value, BasicBlock *, BranchTarget>;
+using Operand = std::variant<Value, BasicBlock *, BranchTarget, std::string,
+                             std::vector<Value>>;
 
 struct Instruction {
   Opcode op;
@@ -92,53 +87,23 @@ struct BasicBlock {
   Function *func;
   std::string name;
   std::vector<std::unique_ptr<Instruction>> insts;
-  /* 块参数列表 */
-  std::vector<std::pair<std::string, std::string>>
-      params; // [(name, type), ...]
+  std::vector<std::pair<std::string, std::string>> params;
 
-  explicit BasicBlock(Function *func, std::string name)
-      : func(func), name(name) {}
-
-  bool HasTerminator() const {
-    if (insts.empty())
-      return false;
-    auto op = insts.back()->op;
-    return op == Opcode::Br || op == Opcode::Jmp || op == Opcode::Ret;
-  }
-
-  /*
-   * 添加基本块参数，添加类型为 type 的参数，名称为
-   * %<block_name>_arg<index>，返回该名称寄存器的值
-   */
-  Value AddParam(const std::string &type) {
-    std::string param_name =
-        "%" + name + "_arg" + std::to_string(params.size());
-    params.push_back({param_name, type});
-    return Value::Reg(param_name);
-  }
-
-  void Append(std::unique_ptr<Instruction> inst) {
-    insts.push_back(std::move(inst));
-  }
-
-  static BasicBlock *Create(Function *func, std::string name) {
-    return new BasicBlock(func, std::move(name));
-  }
+  explicit BasicBlock(Function *func, std::string name);
+  bool HasTerminator() const;
+  Value AddParam(const std::string &type);
+  void Append(std::unique_ptr<Instruction> inst);
+  static BasicBlock *Create(Function *func, std::string name);
 };
 
 struct Function {
   std::string name;
   std::string ret_type;
+  std::vector<std::string> param_names;
   std::vector<std::unique_ptr<BasicBlock>> blocks;
-
-  // 函数的 exit 块（统一返回出口）
   BasicBlock *exit_bb = nullptr;
 
-  Function(std::string name = "", std::string ret_type = "")
-      : name(std::move(name)), ret_type(std::move(ret_type)) {}
-
-  BasicBlock *CreateBlock(const std::string &block_name) {
-    blocks.push_back(std::make_unique<BasicBlock>(this, block_name));
-    return blocks.back().get();
-  }
+  Function(std::string name, std::string ret_type = "",
+           std::vector<std::string> param_names = {});
+  BasicBlock *CreateBlock(const std::string &block_name);
 };
