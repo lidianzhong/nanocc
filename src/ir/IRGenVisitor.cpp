@@ -12,7 +12,17 @@
 IRGenVisitor::IRGenVisitor()
     : module_(std::make_unique<IRModule>()),
       builder_(std::make_unique<IRBuilder>()),
-      symtab_(std::make_unique<SymbolTable>()) {}
+      symtab_(std::make_unique<SymbolTable>()) {
+
+  module_->CreateFunction("getint", "i32", {});
+  module_->CreateFunction("getch", "i32", {});
+  module_->CreateFunction("getarray", "i32", {{"ptr", "*i32"}});
+  module_->CreateFunction("putint", "", {{"val", "i32"}});
+  module_->CreateFunction("putch", "", {{"val", "i32"}});
+  module_->CreateFunction("putarray", "", {{"val", "i32"}, {"ptr", "*i32"}});
+  module_->CreateFunction("starttime", "", {});
+  module_->CreateFunction("stoptime", "", {});
+}
 
 void IRGenVisitor::VisitCompUnit_(const CompUnitAST *ast) {
   for (auto &func_def : ast->func_defs) {
@@ -25,26 +35,31 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
     throw std::runtime_error("[Semantic Error]: Duplicate function name " +
                              ast->ident);
   }
-  std::string ret_type = ast->ret_type == "int" ? "i32" : "";
-  std::string param_type = "i32";
-  std::vector<std::string> param_names;
+  std::string func_name = ast->ident;
+  std::string ret_type = ast->ret_type == "int" ? "i32" : "void";
+  std::vector<std::pair<std::string, std::string>> params;
   for (auto &param : ast->params) {
-    param_names.push_back(param->ident);
+    params.push_back({param->ident, param->btype == "int" ? "i32" : "*i32"});
   }
-  Function *new_func =
-      module_->CreateFunction(ast->ident, ret_type, param_names);
+
+  // 向 IRModule 注册一个函数
+  Function *new_func = module_->CreateFunction(func_name, ret_type, params);
   builder_->SetCurrentFunction(new_func);
 
-  // 将函数名注册到符号表
-  symtab_->Define(ast->ident, ret_type);
+  // 向 SymbolTable 注册函数名
+  symtab_->Define(func_name, ret_type);
   symtab_->EnterScope();
 
   auto *entry_bb = builder_->CreateBlock("entry");
-  new_func->exit_bb = builder_->CreateBlock("exit");
-  builder_->SetInsertPoint(entry_bb);
+  auto *exit_bb = builder_->CreateBlock("exit");
 
+  // 将 exit_bb 记录在函数作用域中
+  builder_->cur_func_->exit_bb = exit_bb;
+
+  // 将函数参数存入符号表
+  builder_->SetInsertPoint(entry_bb);
   for (auto &param : ast->params) {
-    Value param_addr = builder_->CreateAlloca(param_type, param->ident);
+    Value param_addr = builder_->CreateAlloca("i32", param->ident);
     builder_->CreateStore(Value::Reg("%" + param->ident), param_addr);
     symtab_->Define(param->ident, SYMBOL_TYPE_VARIABLE, param_addr.reg_or_addr);
   }
@@ -52,7 +67,8 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
   // 分配返回值变量
   if (ret_type == "i32") {
     Value ret_addr = builder_->CreateAlloca("i32", "ret");
-    symtab_->Define("@ret", SYMBOL_TYPE_VARIABLE, ret_addr.reg_or_addr);
+    builder_->cur_func_->ret_addr = ret_addr;
+    builder_->cur_func_->has_return = true;
   }
 
   // 访问函数的 Block(不再重复进入作用域)
@@ -67,12 +83,8 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
 
   // exit块：加载返回值并返回
   builder_->SetInsertPoint(new_func->exit_bb);
-  if (ret_type == "i32") {
-    auto ret_symbol = symtab_->Lookup("@ret");
-    assert(ret_symbol && "Return symbol not found");
-    assert(ret_symbol->type == SYMBOL_TYPE_VARIABLE &&
-           "Return symbol is not a variable");
-    Value ret_val = Value::Addr(*ret_symbol);
+  if (builder_->cur_func_->has_return) {
+    Value ret_val = builder_->CreateLoad(builder_->cur_func_->ret_addr);
     builder_->CreateReturn(ret_val);
   } else {
     builder_->CreateReturn();
@@ -265,14 +277,9 @@ void IRGenVisitor::VisitReturnStmt_(const ReturnStmtAST *ast) {
   if (ast->exp) {
     Value src_val = Eval(ast->exp.get());
 
-    auto ret_symbol = symtab_->Lookup("@ret");
-    if (!ret_symbol) {
-      std::cerr << "symbol not found: @ret" << std::endl;
-      assert(false);
+    if (builder_->cur_func_->has_return) {
+      builder_->CreateStore(src_val, builder_->cur_func_->ret_addr);
     }
-    Value dest_addr = Value::Addr(*ret_symbol);
-
-    builder_->CreateStore(src_val, dest_addr);
   }
 
   // 跳转到函数的 exit 块

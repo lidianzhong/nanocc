@@ -31,7 +31,8 @@ enum class Opcode {
   Jmp, // unconditional jump
   Ret, // return
   // Function
-  Call // function call
+  Call,    // function call
+  FuncDecl // function declaration
 };
 
 enum class ValueKind {
@@ -72,7 +73,7 @@ struct BranchTarget {
 };
 
 using Operand = std::variant<Value, BasicBlock *, BranchTarget, std::string,
-                             std::vector<Value>>;
+                             std::vector<Value>, std::vector<std::string>>;
 
 struct Instruction {
   Opcode op;
@@ -99,11 +100,14 @@ struct BasicBlock {
 struct Function {
   std::string name;
   std::string ret_type;
-  std::vector<std::string> param_names;
+  std::vector<std::pair<std::string, std::string>> params; // Name, Type
   std::vector<std::unique_ptr<BasicBlock>> blocks;
+
   BasicBlock *exit_bb = nullptr;
+  Value ret_addr;
+  bool has_return = false;
 
   Function(std::string name, std::string ret_type = "",
-           std::vector<std::string> param_names = {});
+           std::vector<std::pair<std::string, std::string>> params = {});
   BasicBlock *CreateBlock(const std::string &block_name);
 };

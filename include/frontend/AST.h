@@ -28,7 +28,7 @@ public:
 /// 函数参数
 class FuncFParamAST : public BaseAST {
 public:
-  std::string btype; // "int"
+  std::string btype; // "int" or "*int"
   std::string ident;
   void Accept(ASTVisitor &visitor) override;
 };

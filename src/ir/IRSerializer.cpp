@@ -157,8 +157,27 @@ static std::string InstructionToString(const Instruction &inst) {
       oss << ")";
     }
     break;
+  case Opcode::FuncDecl: {
+    // decl func_name: ret_type (param_types)
+    oss << "decl " << std::get<std::string>(inst.args[0]) << "(";
+    const auto &param_types = std::get<std::vector<std::string>>(inst.args[2]);
+    for (size_t i = 0; i < param_types.size(); i++) {
+      if (i > 0)
+        oss << ", ";
+      oss << param_types[i];
+      ;
+    }
+    oss << ")";
+    if (!std::get<std::string>(inst.args[1]).empty()) {
+      oss << ": " << std::get<std::string>(inst.args[1]);
+      ;
+    }
+    break;
   }
-
+  default:
+    assert(false && "InstructionToString: unknown opcode");
+    break;
+  }
   return oss.str();
 }
 
@@ -183,17 +202,36 @@ static std::string BlockHeaderToString(const BasicBlock &bb) {
 static std::string FunctionToString(const Function &func) {
   std::ostringstream oss;
 
+  if (func.blocks.empty()) {
+    // 这是一个函数声明
+    oss << "decl " << func.name << "(";
+    for (size_t i = 0; i < func.params.size(); i++) {
+      if (i > 0)
+        oss << ", ";
+      oss << func.params[i].second;
+    }
+    oss << ")";
+
+    // 只有当返回值不是空且不是 "void" 时，才打印类型
+    if (!func.ret_type.empty() && func.ret_type != "void") {
+      oss << ": " << func.ret_type;
+    }
+
+    return oss.str();
+  }
+
   // 函数头
   oss << "fun " << func.name << "(";
-  for (size_t i = 0; i < func.param_names.size(); i++) {
+  for (size_t i = 0; i < func.params.size(); i++) {
     if (i > 0)
       oss << ", ";
-    oss << func.param_names[i] << ": i32";
+    oss << func.params[i].first << ": " << func.params[i].second;
   }
-  if (func.ret_type.empty()) {
-    oss << ") {\n";
-  } else {
+
+  if (!func.ret_type.empty() && func.ret_type != "void") {
     oss << "): " << func.ret_type << " {\n";
+  } else {
+    oss << ") {\n";
   }
 
   // 遍历所有基本块
@@ -216,6 +254,7 @@ std::string ToIR(const IRModule &module) {
 
   for (const auto &func : module.GetFunctions()) {
     oss << FunctionToString(*func);
+    oss << "\n";
   }
 
   return oss.str();

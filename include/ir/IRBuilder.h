@@ -40,6 +40,9 @@ public:
   Value CreateCall(const std::string &func_name, const std::vector<Value> &args,
                    bool has_return);
 
+  void DeclareFunction(const std::string &name, const std::string &ret_type,
+                       const std::vector<std::string> &param_types);
+
 public:
   Function *cur_func_ = nullptr;
   BasicBlock *cur_bb_ = nullptr;

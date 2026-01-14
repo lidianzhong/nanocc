@@ -214,6 +214,12 @@ Value IRBuilder::CreateCall(const std::string &func_name,
   }
 }
 
+void IRBuilder::DeclareFunction(const std::string &name,
+                                const std::string &ret_type,
+                                const std::vector<std::string> &param_types) {
+  Emit(Opcode::FuncDecl, name, ret_type, param_types);
+}
+
 Value IRBuilder::NewTempReg_() {
   return Value::Reg("%" + std::to_string(temp_reg_id_++));
 }

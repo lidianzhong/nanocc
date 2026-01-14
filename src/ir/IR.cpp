@@ -51,12 +51,12 @@ BasicBlock *BasicBlock::Create(Function *func, std::string name) {
 }
 
 Function::Function(std::string name, std::string ret_type,
-                   std::vector<std::string> p_names)
+                   std::vector<std::pair<std::string, std::string>> params)
     : name("@" + std::move(name)), ret_type(std::move(ret_type)) {
-  for (auto &p_name : p_names) {
-    p_name = "%" + p_name;
+  for (auto &param : params) {
+    param.first = "%" + param.first;
   }
-  param_names = std::move(p_names);
+  this->params = std::move(params);
 }
 
 BasicBlock *Function::CreateBlock(const std::string &block_name) {

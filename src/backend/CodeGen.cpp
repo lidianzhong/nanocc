@@ -23,6 +23,11 @@ void ProgramCodeGen::Emit(const koopa_raw_program_t &program) {
 void ProgramCodeGen::EmitTextSection() { std::cout << "  .text" << std::endl; }
 
 void FunctionCodeGen::Emit(const koopa_raw_function_t &func) {
+  if (func->bbs.len == 0) {
+    // 函数声明，无需生成代码
+    return;
+  }
+  
   func_ = func;
 
   std::string name = func_->name;
