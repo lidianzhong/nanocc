@@ -43,7 +43,9 @@ public:
 
   void Define(const std::string &name, symbol_type_t type,
               std::variant<int, std::string, func_info_t> value);
-  void Define(const std::string &name, const std::string &ret_type);
+  void DefineGlobal(const std::string &name, symbol_type_t type,
+                    std::variant<int, std::string, func_info_t> value);
+  void DefineGlobal(const std::string &name, const std::string &ret_type);
   const symbol_t *Lookup(const std::string &name) const;
 
   void EnterScope();

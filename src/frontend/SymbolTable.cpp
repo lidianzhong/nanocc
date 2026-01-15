@@ -7,6 +7,8 @@
 SymbolTable::SymbolTable() { scopes_.emplace_back(); }
 
 void SymbolTable::Define(const std::string &name, const symbol_t &symbol) {
+  assert(IsGlobal() ||
+         "Define called in global scope, use DefineGlobal instead");
   auto &cur_scope = scopes_.back();
   if (cur_scope.find(name) != cur_scope.end()) {
     throw std::runtime_error("[Semantic Error]: Duplicate symbol " + name);
@@ -29,7 +31,15 @@ void SymbolTable::Define(const std::string &name, symbol_type_t type,
   Define(name, symbol);
 }
 
-void SymbolTable::Define(const std::string &name, const std::string &ret_type) {
+void SymbolTable::DefineGlobal(
+    const std::string &name, symbol_type_t type,
+    std::variant<int, std::string, func_info_t> value) {
+  symbol_t symbol(name, type, std::move(value));
+  DefineGlobal(name, symbol);
+}
+
+void SymbolTable::DefineGlobal(const std::string &name,
+                               const std::string &ret_type) {
   func_info_t func_info(ret_type);
   DefineGlobal(name, {name, SYMBOL_TYPE_FUNCTION, func_info});
 }

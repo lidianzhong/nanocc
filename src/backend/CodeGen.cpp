@@ -8,7 +8,74 @@
 
 #include "koopa.h"
 
+size_t ProgramCodeGen::CalcTypeSize(koopa_raw_type_t ty) {
+  switch (ty->tag) {
+  case KOOPA_RTT_INT32:
+  case KOOPA_RTT_POINTER:
+    return 4;
+  case KOOPA_RTT_UNIT:
+    return 0;
+  case KOOPA_RTT_ARRAY:
+    return ty->data.array.len * CalcTypeSize(ty->data.array.base);
+  default:
+    std::cerr << "Unsupported type in global initializer: " << ty->tag
+              << std::endl;
+    assert(false);
+    return 0;
+  }
+}
+
+void ProgramCodeGen::EmitInitializer(const koopa_raw_value_t &init) {
+  switch (init->kind.tag) {
+  case KOOPA_RVT_ZERO_INIT: {
+    size_t size = CalcTypeSize(init->ty);
+    std::cout << "  .zero " << size << std::endl;
+    break;
+  }
+  case KOOPA_RVT_INTEGER:
+    std::cout << "  .word " << init->kind.data.integer.value << std::endl;
+    break;
+  case KOOPA_RVT_AGGREGATE: {
+    const auto &agg = init->kind.data.aggregate;
+    for (size_t i = 0; i < agg.elems.len; ++i) {
+      auto elem = reinterpret_cast<koopa_raw_value_t>(agg.elems.buffer[i]);
+      EmitInitializer(elem);
+    }
+    break;
+  }
+  default:
+    std::cerr << "Unsupported global initializer tag: " << init->kind.tag
+              << std::endl;
+    assert(false);
+  }
+}
+
+void ProgramCodeGen::EmitGlobalAlloc(const koopa_raw_value_t &value) {
+  assert(value->kind.tag == KOOPA_RVT_GLOBAL_ALLOC);
+
+  std::string name = value->name;
+  assert(name.length() > 0 && name[0] == '@');
+  name = name.substr(1);
+
+  std::cout << "  .globl " << name << std::endl;
+  std::cout << name << ":" << std::endl;
+  EmitInitializer(value->kind.data.global_alloc.init);
+}
+
+void ProgramCodeGen::EmitDataSection(const koopa_raw_slice_t &values) {
+  if (values.len == 0)
+    return;
+
+  std::cout << "  .data" << std::endl;
+  for (size_t i = 0; i < values.len; ++i) {
+    auto val = reinterpret_cast<koopa_raw_value_t>(values.buffer[i]);
+    EmitGlobalAlloc(val);
+  }
+  std::cout << std::endl;
+}
+
 void ProgramCodeGen::Emit(const koopa_raw_program_t &program) {
+  EmitDataSection(program.values);
   EmitTextSection();
 
   const koopa_raw_slice_t &funcs = program.funcs;
@@ -27,7 +94,7 @@ void FunctionCodeGen::Emit(const koopa_raw_function_t &func) {
     // 函数声明，无需生成代码
     return;
   }
-  
+
   func_ = func;
 
   std::string name = func_->name;
@@ -272,10 +339,18 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     break;
   case KOOPA_RVT_LOAD: {
     const auto &load = kind.data.load;
-    size_t src_offset = GetStackOffset(load.src);
     size_t res_offset = GetStackOffset(value);
 
-    std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
+    if (load.src->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+      std::string name = load.src->name;
+      assert(name.length() > 0 && name[0] == '@');
+      name = name.substr(1);
+      std::cout << "  la t0, " << name << std::endl;
+      std::cout << "  lw t0, 0(t0)" << std::endl;
+    } else {
+      size_t src_offset = GetStackOffset(load.src);
+      std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
+    }
     std::cout << "  sw t0, " << res_offset << "(sp)" << std::endl;
     break;
   }
@@ -296,7 +371,9 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     }
 
     if (store.dest->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
-      std::string name = store.dest->name + 1;
+      std::string name = store.dest->name;
+      assert(name.length() > 0 && name[0] == '@');
+      name = name.substr(1);
       std::cout << "  la t1, " << name << std::endl;
       std::cout << "  sw t0, 0(t1)" << std::endl;
     } else {

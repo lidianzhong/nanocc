@@ -36,9 +36,9 @@ void DumpVisitor::print_node(const std::string &name) {
 void DumpVisitor::Visit(CompUnitAST &node) {
   print_node("CompUnitAST");
   IndentGuard _{indent_level};
-  for (auto &func_def : node.func_defs) {
-    if (func_def)
-      func_def->Accept(*this);
+  for (auto &item : node.items) {
+    if (item)
+      item->Accept(*this);
   }
 }
 

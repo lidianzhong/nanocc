@@ -103,6 +103,16 @@ static std::string InstructionToString(const Instruction &inst) {
   case Opcode::Alloc:
     oss << "  " << OperandToString(inst.args[0]) << " = alloc i32";
     break;
+  case Opcode::GlobalAlloc: {
+    oss << "global " << OperandToString(inst.args[0]) << " = alloc i32, ";
+    const auto &init = std::get<Value>(inst.args[1]);
+    if (init.isImmediate() && init.imm == 0) {
+      oss << "zeroinit";
+    } else {
+      oss << OperandToString(inst.args[1]);
+    }
+    break;
+  }
   case Opcode::Load:
     oss << "  " << OperandToString(inst.args[0]) << " = load "
         << OperandToString(inst.args[1]);
@@ -251,6 +261,14 @@ static std::string FunctionToString(const Function &func) {
 
 std::string ToIR(const IRModule &module) {
   std::ostringstream oss;
+
+  // 全局变量
+  for (const auto &global_inst : module.globals_) {
+    oss << InstructionToString(*global_inst) << "\n";
+  }
+  if (!module.globals_.empty()) {
+    oss << "\n";
+  }
 
   for (const auto &func : module.GetFunctions()) {
     oss << FunctionToString(*func);

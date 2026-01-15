@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <utility>
 
 void IRBuilder::SetCurrentFunction(Function *func) { cur_func_ = func; }
 
@@ -25,6 +26,19 @@ Value IRBuilder::CreateAlloca(const std::string &type,
                               const std::string &var_name, bool unique) {
   Value addr = NewTempAddr_(var_name, unique);
   Emit(Opcode::Alloc, addr);
+  return addr;
+}
+
+/**
+ * global @var = alloc i32, init_val
+ */
+Value IRBuilder::CreateGlobalAlloc(const std::string &type,
+                                   const std::string &var_name,
+                                   Value init_val) {
+  Value addr = NewTempAddr_(var_name);
+  auto inst =
+      std::make_unique<Instruction>(Opcode::GlobalAlloc, addr, init_val);
+  module_->globals_.push_back(std::move(inst));
   return addr;
 }
 
@@ -204,12 +218,22 @@ Value IRBuilder::CreateBinaryOp(const std::string &op, const Value &lhs,
 
 Value IRBuilder::CreateCall(const std::string &func_name,
                             const std::vector<Value> &args, bool has_return) {
+  // args 中的地址参数需要先load
+  std::vector<Value> final_args;
+  for (const auto &arg : args) {
+    if (arg.isAddress()) {
+      final_args.push_back(CreateLoad(arg));
+    } else {
+      final_args.push_back(arg);
+    }
+  }
+
   if (has_return) {
     Value ret_reg = NewTempReg_();
-    Emit(Opcode::Call, ret_reg, func_name, args);
+    Emit(Opcode::Call, ret_reg, func_name, final_args);
     return ret_reg;
   } else {
-    Emit(Opcode::Call, func_name, args);
+    Emit(Opcode::Call, func_name, final_args);
     return Value::Reg(""); // undefined
   }
 }

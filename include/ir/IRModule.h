@@ -11,6 +11,9 @@ private:
   std::vector<std::unique_ptr<Function>> funcs_;
 
 public:
+  std::vector<std::unique_ptr<Instruction>> globals_;
+
+public:
   // 创建并存储函数，返回裸指针供后续使用
   Function *CreateFunction(
       const std::string &name, const std::string &ret_type,

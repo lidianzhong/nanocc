@@ -11,7 +11,7 @@
 
 IRGenVisitor::IRGenVisitor()
     : module_(std::make_unique<IRModule>()),
-      builder_(std::make_unique<IRBuilder>()),
+      builder_(std::make_unique<IRBuilder>(module_.get())),
       symtab_(std::make_unique<SymbolTable>()) {
 
   module_->CreateFunction("getint", "i32", {});
@@ -25,7 +25,7 @@ IRGenVisitor::IRGenVisitor()
 }
 
 void IRGenVisitor::VisitCompUnit_(const CompUnitAST *ast) {
-  for (auto &func_def : ast->func_defs) {
+  for (auto &func_def : ast->items) {
     func_def->Accept(*this);
   }
 }
@@ -47,7 +47,7 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
   builder_->SetCurrentFunction(new_func);
 
   // 向 SymbolTable 注册函数名
-  symtab_->Define(func_name, ret_type);
+  symtab_->DefineGlobal(func_name, ret_type);
   symtab_->EnterScope();
 
   auto *entry_bb = builder_->CreateBlock("entry");
@@ -117,7 +117,6 @@ void IRGenVisitor::VisitConstDecl_(const ConstDeclAST *ast) {
 
 void IRGenVisitor::VisitConstDef_(const ConstDefAST *ast) {
   assert(ast->init_val);
-
   Value init_val = Eval(ast->init_val.get());
 
   if (!init_val.isImmediate()) {
@@ -125,7 +124,11 @@ void IRGenVisitor::VisitConstDef_(const ConstDefAST *ast) {
     assert(false);
   }
 
-  symtab_->Define(ast->ident, SYMBOL_TYPE_CONSTANT, init_val.imm);
+  if (symtab_->IsGlobal()) {
+    symtab_->DefineGlobal(ast->ident, SYMBOL_TYPE_CONSTANT, init_val.imm);
+  } else {
+    symtab_->Define(ast->ident, SYMBOL_TYPE_CONSTANT, init_val.imm);
+  }
 }
 
 void IRGenVisitor::VisitVarDecl_(const VarDeclAST *ast) {
@@ -135,19 +138,35 @@ void IRGenVisitor::VisitVarDecl_(const VarDeclAST *ast) {
 }
 
 void IRGenVisitor::VisitVarDef_(const VarDefAST *ast) {
-  // 分配变量
-  Value alloc_addr = builder_->CreateAlloca("i32", ast->ident);
-  symtab_->Define(ast->ident, SYMBOL_TYPE_VARIABLE, alloc_addr.reg_or_addr);
+  if (symtab_->IsGlobal()) {
+    Value init_val = Value::Imm(0);
+    if (ast->init_val) {
+      init_val = Eval(ast->init_val.get());
+      if (!init_val.isImmediate()) {
+        // 全局变量初始化必须是常量表达式
+        std::cerr << "Global variable initializer must be a constant expression"
+                  << std::endl;
+        assert(false);
+      }
+    }
 
-  // 初始化
-  Value init_val;
-  if (ast->init_val) {
-    init_val = Eval(ast->init_val.get());
+    Value global_addr =
+        builder_->CreateGlobalAlloc("i32", ast->ident, init_val);
+    symtab_->DefineGlobal(ast->ident, SYMBOL_TYPE_VARIABLE,
+                          global_addr.reg_or_addr);
+    return;
   } else {
-    init_val = Value::Imm(0);
-  }
+    // 局部变量
+    Value alloc_addr = builder_->CreateAlloca("i32", ast->ident);
+    symtab_->Define(ast->ident, SYMBOL_TYPE_VARIABLE, alloc_addr.reg_or_addr);
 
-  builder_->CreateStore(init_val, alloc_addr);
+    // 初始化
+    if (ast->init_val) {
+      Value init_val = Eval(ast->init_val.get());
+      builder_->CreateStore(init_val, alloc_addr);
+    }
+    return;
+  }
 }
 
 void IRGenVisitor::VisitAssignStmt_(const AssignStmtAST *ast) {
@@ -348,6 +367,15 @@ Value IRGenVisitor::EvalBinaryExp(BinaryExpAST *ast) {
     assert(false);
   }
 
+  // 短路求值 && 与 ||
+  if (ast->op == "&&") {
+    return EvalLogicalAnd(ast);
+  }
+
+  if (ast->op == "||") {
+    return EvalLogicalOr(ast);
+  }
+
   Value lhs = Eval(ast->lhs.get());
   Value rhs = Eval(ast->rhs.get());
 
@@ -386,15 +414,6 @@ Value IRGenVisitor::EvalBinaryExp(BinaryExpAST *ast) {
       assert(false);
     }
     return Value::Imm(result);
-  }
-
-  // 短路求值 && 与 ||
-  if (ast->op == "&&") {
-    return EvalLogicalAnd(ast);
-  }
-
-  if (ast->op == "||") {
-    return EvalLogicalOr(ast);
   }
 
   return builder_->CreateBinaryOp(ast->op, lhs, rhs);

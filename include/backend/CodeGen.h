@@ -10,6 +10,12 @@ public:
 
   void Emit(const koopa_raw_program_t &program);
 
+private:
+  void EmitDataSection(const koopa_raw_slice_t &values);
+  void EmitGlobalAlloc(const koopa_raw_value_t &value);
+  void EmitInitializer(const koopa_raw_value_t &init);
+  size_t CalcTypeSize(koopa_raw_type_t ty);
+
   void EmitTextSection();
 };
 

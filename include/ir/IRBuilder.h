@@ -1,13 +1,14 @@
 #pragma once
 
 #include "ir/IR.h"
+#include "ir/IRModule.h"
 
 #include <memory>
 #include <unordered_map>
 
 class IRBuilder {
 public:
-  IRBuilder() = default;
+  IRBuilder(IRModule *module) : module_(module) {}
   ~IRBuilder() = default;
 
   void SetCurrentFunction(Function *func);
@@ -23,6 +24,8 @@ public:
 
   Value CreateAlloca(const std::string &type, const std::string &var_name = "",
                      bool unique = true);
+  Value CreateGlobalAlloc(const std::string &type, const std::string &var_name,
+                          Value init_val);
   Value CreateLoad(const Value &addr);
   void CreateStore(const Value &value, const Value &addr);
 
@@ -44,6 +47,7 @@ public:
                        const std::vector<std::string> &param_types);
 
 public:
+  IRModule *module_ = nullptr;
   Function *cur_func_ = nullptr;
   BasicBlock *cur_bb_ = nullptr;
 

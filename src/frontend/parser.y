@@ -52,22 +52,33 @@ using namespace std;
 %type <ast_val> FuncFParam FuncDef Block BlockItem Stmt MatchedStmt UnMatchedStmt
 %type <ast_val> Exp LVal PrimaryExp Number UnaryExp
 %type <ast_val> MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
-%type <str_val> BType FuncType UnaryOp
+%type <str_val> BType UnaryOp
 %type <ast_list> ConstDefList VarDefList BlockItemList FuncRParams
 %type <param_list> FuncFParams
 
 %%
 
-// CompUnit ::= [CompUnit] FuncDef
+// CompUnit ::= [CompUnit] ( Decl | FuncDef )
 CompUnit
   : CompUnit FuncDef {
     auto comp_unit = static_cast<CompUnitAST*>($1);
-    comp_unit->func_defs.push_back(unique_ptr<BaseAST>($2));
+    comp_unit->items.push_back(unique_ptr<BaseAST>($2));
+    $$ = comp_unit;
+  }
+  | CompUnit Decl {
+    auto comp_unit = static_cast<CompUnitAST*>($1);
+    comp_unit->items.push_back(unique_ptr<BaseAST>($2));
     $$ = comp_unit;
   }
   | FuncDef {
     auto comp_unit = new CompUnitAST();
-    comp_unit->func_defs.push_back(unique_ptr<BaseAST>($1));
+    comp_unit->items.push_back(unique_ptr<BaseAST>($1));
+    $$ = comp_unit;
+    ast.reset(comp_unit);
+  }
+  | Decl {
+    auto comp_unit = new CompUnitAST();
+    comp_unit->items.push_back(unique_ptr<BaseAST>($1));
     $$ = comp_unit;
     ast.reset(comp_unit);
   }
@@ -191,16 +202,16 @@ FuncFParams
 
 // FuncDef ::= FuncType IDENT "(" [FuncFParams] ")" Block
 FuncDef
-  : FuncType IDENT '(' FuncFParams ')' Block {
+  : BType IDENT '(' FuncFParams ')' Block {
     auto ast = new FuncDefAST();
-    ast->ret_type = *unique_ptr<string>($1);
+    ast->ret_type = *unique_ptr<string>($1); // $1 是 BType 返回的 string*
     ast->ident = *unique_ptr<string>($2);
     ast->params = std::move(*$4);
     delete $4;
     ast->block = std::unique_ptr<BlockAST>(static_cast<BlockAST *>($6));
     $$ = ast;
   }
-  | FuncType IDENT '(' ')' Block {
+  | BType IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
     ast->ret_type = *unique_ptr<string>($1);
     ast->ident = *unique_ptr<string>($2);
@@ -208,15 +219,22 @@ FuncDef
     ast->block = std::unique_ptr<BlockAST>(static_cast<BlockAST *>($5));
     $$ = ast;
   }
-  ;
-
-// FuncType ::= "void" | "int"
-FuncType
-  : VOID {
-    $$ = new string("void");
+  | VOID IDENT '(' FuncFParams ')' Block {
+    auto ast = new FuncDefAST();
+    ast->ret_type = "void"; // 直接赋值 "void"
+    ast->ident = *unique_ptr<string>($2);
+    ast->params = std::move(*$4);
+    delete $4;
+    ast->block = std::unique_ptr<BlockAST>(static_cast<BlockAST *>($6));
+    $$ = ast;
   }
-  | INT {
-    $$ = new string("int");
+  | VOID IDENT '(' ')' Block {
+    auto ast = new FuncDefAST();
+    ast->ret_type = "void";
+    ast->ident = *unique_ptr<string>($2);
+    ast->params.clear();
+    ast->block = std::unique_ptr<BlockAST>(static_cast<BlockAST *>($5));
+    $$ = ast;
   }
   ;
 

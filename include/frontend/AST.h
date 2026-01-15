@@ -21,7 +21,7 @@ public:
 /// 编译单元
 class CompUnitAST : public BaseAST {
 public:
-  std::vector<std::unique_ptr<BaseAST>> func_defs;
+  std::vector<std::unique_ptr<BaseAST>> items; // func_defs or decls
   void Accept(ASTVisitor &visitor) override;
 };
 
