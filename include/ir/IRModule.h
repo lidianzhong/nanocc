@@ -15,10 +15,8 @@ public:
 
 public:
   // 创建并存储函数，返回裸指针供后续使用
-  Function *CreateFunction(
-      const std::string &name, const std::string &ret_type,
-      const std::vector<std::pair<std::string, std::string>> &params) {
-    auto func = std::make_unique<Function>(name, ret_type, params);
+  template <typename... Args> Function *CreateFunction(Args &&...args) {
+    auto func = std::make_unique<Function>(std::forward<Args>(args)...);
     Function *ptr = func.get();
     funcs_.push_back(std::move(func));
     return ptr;

@@ -23,8 +23,8 @@ void IRBuilder::SetInsertPoint(BasicBlock *bb) { cur_bb_ = bb; }
  * @addr = alloc type
  */
 Value IRBuilder::CreateAlloca(const std::string &type,
-                              const std::string &var_name, bool unique) {
-  Value addr = NewTempAddr_(var_name, unique);
+                              const std::string &var_name) {
+  Value addr = NewTempAddr_(var_name);
   Emit(Opcode::Alloc, addr);
   return addr;
 }
@@ -40,6 +40,47 @@ Value IRBuilder::CreateGlobalAlloc(const std::string &type,
       std::make_unique<Instruction>(Opcode::GlobalAlloc, addr, init_val);
   module_->globals_.push_back(std::move(inst));
   return addr;
+}
+
+/**
+ * @addr = alloc [type, size]
+ */
+Value IRBuilder::CreateArrayAlloca(const std::string &type,
+                                   const std::string &var_name, int size) {
+  Value addr = NewTempAddr_(var_name);
+  Emit(Opcode::AllocArray, addr, Value::Imm(size));
+  return addr;
+}
+
+/**
+ * global @addr = alloc [type, size], init_vals
+ */
+Value IRBuilder::CreateGlobalArrayAlloca(const std::string &type,
+                                         const std::string &var_name, int size,
+                                         const std::vector<Value> &init_vals) {
+  Value addr = NewTempAddr_(var_name);
+  auto inst = std::make_unique<Instruction>(Opcode::GlobalAllocArray, addr,
+                                            Value::Imm(size), init_vals);
+  module_->globals_.push_back(std::move(inst));
+  return addr;
+}
+
+/**
+ * @reg = getelemptr @base, index
+ */
+Value IRBuilder::CreateGetElemPtr(const Value &base_addr, const Value &index) {
+  // assert(base_addr.isAddress() && "CreateGetElemPtr expects an address");
+
+  Value idx = index;
+  if (index.isAddress()) {
+    idx = CreateLoad(index);
+  }
+
+  Value res = NewTempReg_();
+  Value res_addr = Value::Addr(res.reg_or_addr);
+
+  Emit(Opcode::GetElemPtr, res_addr, base_addr, idx);
+  return res_addr;
 }
 
 /**
@@ -248,18 +289,24 @@ Value IRBuilder::NewTempReg_() {
   return Value::Reg("%" + std::to_string(temp_reg_id_++));
 }
 
-Value IRBuilder::NewTempAddr_(const std::string &addr_name, bool unique) {
-  assert(!addr_name.empty() && "new addr name cannot be empty");
-  std::string final_name = addr_name;
-  if (unique) {
+Value IRBuilder::NewTempAddr_(const std::string &addr_name) {
+    assert(!addr_name.empty() && "new addr name cannot be empty");
     int &counter = temp_addr_counters_[addr_name];
-    final_name = addr_name + "_" + std::to_string(++counter);
-    ;
-  }
-  return Value::Addr("@" + final_name);
+    std::string final_name;
+    if (counter == 0) {
+        final_name = addr_name;
+    } else {
+        final_name = addr_name + "_" + std::to_string(counter);
+    }
+    counter++;
+    return Value::Addr("@" + final_name);
 }
 
 std::string IRBuilder::NewTempLabel_(const std::string &prefix) {
-  int &counter = temp_label_counters_[prefix];
-  return prefix + "_" + std::to_string(++counter);
+    int &counter = temp_label_counters_[prefix];
+    std::string label = (counter == 0) 
+                        ? prefix 
+                        : prefix + "_" + std::to_string(counter);
+    counter++;
+    return label;
 }

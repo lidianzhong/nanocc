@@ -18,6 +18,7 @@ public:
   void Visit(ConstDefAST &node) override;
   void Visit(VarDeclAST &node) override;
   void Visit(VarDefAST &node) override;
+  void Visit(InitVarAST &node) override;
   void Visit(AssignStmtAST &node) override;
   void Visit(ExpStmtAST &node) override;
   void Visit(IfStmtAST &node) override;

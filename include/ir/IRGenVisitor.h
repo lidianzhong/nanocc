@@ -25,6 +25,7 @@ public:
   void Visit(ConstDefAST &node) override;
   void Visit(VarDeclAST &node) override;
   void Visit(VarDefAST &node) override;
+  void Visit(InitVarAST &node) override;
   void Visit(AssignStmtAST &node) override;
   void Visit(ExpStmtAST &node) override;
   void Visit(IfStmtAST &node) override;
@@ -72,4 +73,6 @@ private:
 
   Value EvalLogicalAnd(BinaryExpAST *ast);
   Value EvalLogicalOr(BinaryExpAST *ast);
+
+  void FlattenInitList(const BaseAST *ast, std::vector<Value> &init_vals);
 };

@@ -24,7 +24,7 @@ public:
   FunctionCodeGen() = default;
   ~FunctionCodeGen() = default;
 
-  void Emit(const koopa_raw_function_t &func);
+  void EmitFunction(const koopa_raw_function_t &func);
 
 private:
   void EmitPrologue();

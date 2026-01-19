@@ -23,10 +23,13 @@ enum class Opcode {
   And,
   Or,
   // Memory
-  Alloc,       // allocate local variable
-  GlobalAlloc, // allocate global variable
-  Load,        // load from memory
-  Store,       // store to memory
+  Alloc,            // allocate local variable
+  GlobalAlloc,      // allocate global variable
+  AllocArray,       // allocate local array
+  GlobalAllocArray, // allocate global array
+  Load,             // load from memory
+  Store,            // store to memory
+  GetElemPtr,       // get element pointer
   // Control flow
   Br,  // conditional branch
   Jmp, // unconditional jump

@@ -67,6 +67,7 @@ public:
 class ConstDefAST : public BaseAST {
 public:
   std::string ident;
+  std::unique_ptr<BaseAST> array_size; // 可能为空
   std::unique_ptr<BaseAST> init_val;
   void Accept(ASTVisitor &visitor) override;
 };
@@ -83,7 +84,19 @@ public:
 class VarDefAST : public BaseAST {
 public:
   std::string ident;
-  std::unique_ptr<BaseAST> init_val; // 可能为空
+  std::unique_ptr<BaseAST> array_size; // 可能为空
+  std::unique_ptr<BaseAST> init_val;   // 可能为空
+  void Accept(ASTVisitor &visitor) override;
+};
+
+/// 变量初始化值
+class InitVarAST : public BaseAST {
+public:
+  // 可以是单个 Exp 或 InitVal 列表
+  bool is_list;
+  bool must_be_constant = false; // Add this field
+  std::unique_ptr<BaseAST> exp;  // 当 is_list 为 false 时使用
+  std::vector<std::unique_ptr<BaseAST>> inits; // 当 is_list 为 true 时使用
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -146,6 +159,7 @@ public:
 class LValAST : public BaseAST {
 public:
   std::string ident;
+  std::unique_ptr<BaseAST> index_exp; // 可能为空
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -194,6 +208,7 @@ inline void ConstDeclAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ConstDefAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void VarDeclAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void VarDefAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+inline void InitVarAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void AssignStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void ExpStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void IfStmtAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }

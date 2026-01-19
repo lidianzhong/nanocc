@@ -83,13 +83,13 @@ void ProgramCodeGen::Emit(const koopa_raw_program_t &program) {
     koopa_raw_function_t func =
         reinterpret_cast<koopa_raw_function_t>(funcs.buffer[i]);
     FunctionCodeGen func_gen;
-    func_gen.Emit(func);
+    func_gen.EmitFunction(func);
   }
 }
 
 void ProgramCodeGen::EmitTextSection() { std::cout << "  .text" << std::endl; }
 
-void FunctionCodeGen::Emit(const koopa_raw_function_t &func) {
+void FunctionCodeGen::EmitFunction(const koopa_raw_function_t &func) {
   if (func->bbs.len == 0) {
     // 函数声明，无需生成代码
     return;
@@ -149,7 +149,7 @@ void FunctionCodeGen::EmitSlice(const koopa_raw_slice_t &slice) {
     auto ptr = slice.buffer[i];
     switch (slice.kind) {
     case KOOPA_RSIK_FUNCTION:
-      Emit(reinterpret_cast<koopa_raw_function_t>(ptr));
+      EmitFunction(reinterpret_cast<koopa_raw_function_t>(ptr));
       break;
     case KOOPA_RSIK_BASIC_BLOCK:
       EmitBasicBlock(reinterpret_cast<koopa_raw_basic_block_t>(ptr));
@@ -460,6 +460,39 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
         std::cout << "  sw a0, (t1)" << std::endl;
       }
     }
+    break;
+  }
+  case KOOPA_RVT_GET_ELEM_PTR: {
+    const auto &gep = kind.data.get_elem_ptr;
+    size_t res_offset = GetStackOffset(value);
+
+    // 加载基地址
+    if (gep.src->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+      std::string name = gep.src->name;
+      assert(name.length() > 0 && name[0] == '@');
+      name = name.substr(1);
+      std::cout << "  la t0, " << name << std::endl;
+    } else {
+      size_t src_offset = GetStackOffset(gep.src);
+      std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
+    }
+
+    // 计算偏移
+    if (gep.index->kind.tag == KOOPA_RVT_INTEGER) {
+      int32_t index = gep.index->kind.data.integer.value;
+      int32_t offset = index * 4; // 假设元素大小为 4 字节
+      std::cout << "  li t1, " << offset << std::endl;
+    } else {
+      size_t index_offset = GetStackOffset(gep.index);
+      std::cout << "  lw t1, " << index_offset << "(sp)" << std::endl;
+      std::cout << "  slli t1, t1, 2" << std::endl; // 假设元素大小为 4 字节
+    }
+
+    // 计算最终地址
+    std::cout << "  add t0, t0, t1" << std::endl;
+
+    // 存储结果地址
+    std::cout << "  sw t0, " << res_offset << "(sp)" << std::endl;
     break;
   }
 

@@ -94,6 +94,12 @@ void DumpVisitor::Visit(ConstDefAST &node) {
   print_indent();
   out_file << "ConstDefAST { Ident: " << node.ident << " }" << std::endl;
   IndentGuard _{indent_level};
+  if (node.array_size) {
+    print_indent();
+    out_file << "ArraySize:" << std::endl;
+    IndentGuard _i{indent_level};
+    node.array_size->Accept(*this);
+  }
   if (node.init_val)
     node.init_val->Accept(*this);
 }
@@ -112,8 +118,35 @@ void DumpVisitor::Visit(VarDefAST &node) {
   print_indent();
   out_file << "VarDefAST { Ident: " << node.ident << " }" << std::endl;
   IndentGuard _{indent_level};
+  if (node.array_size) {
+    print_indent();
+    out_file << "ArraySize:" << std::endl;
+    IndentGuard _i{indent_level};
+    node.array_size->Accept(*this);
+  }
   if (node.init_val)
     node.init_val->Accept(*this);
+}
+
+void DumpVisitor::Visit(InitVarAST &node) {
+  print_indent();
+  if (node.is_list) {
+    out_file << "InitVarListAST { IsConst: "
+             << (node.must_be_constant ? "true" : "false") << " }" << std::endl;
+  } else {
+    out_file << "InitVarAST { IsConst: "
+             << (node.must_be_constant ? "true" : "false") << " }" << std::endl;
+  }
+  IndentGuard _{indent_level};
+  if (node.is_list) {
+    for (auto &val : node.inits) {
+      if (val)
+        val->Accept(*this);
+    }
+  } else {
+    if (node.exp)
+      node.exp->Accept(*this);
+  }
 }
 
 void DumpVisitor::Visit(AssignStmtAST &node) {
@@ -172,6 +205,13 @@ void DumpVisitor::Visit(ReturnStmtAST &node) {
 void DumpVisitor::Visit(LValAST &node) {
   print_indent();
   out_file << "LValAST { Ident: " << node.ident << " }" << std::endl;
+  IndentGuard _{indent_level};
+  if (node.index_exp) {
+    print_indent();
+    out_file << "IndexExp:" << std::endl;
+    IndentGuard _i{indent_level};
+    node.index_exp->Accept(*this);
+  }
 }
 
 void DumpVisitor::Visit(NumberAST &node) {

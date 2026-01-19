@@ -14,14 +14,20 @@ IRGenVisitor::IRGenVisitor()
       builder_(std::make_unique<IRBuilder>(module_.get())),
       symtab_(std::make_unique<SymbolTable>()) {
 
-  module_->CreateFunction("getint", "i32", {});
-  module_->CreateFunction("getch", "i32", {});
-  module_->CreateFunction("getarray", "i32", {{"ptr", "*i32"}});
-  module_->CreateFunction("putint", "", {{"val", "i32"}});
-  module_->CreateFunction("putch", "", {{"val", "i32"}});
-  module_->CreateFunction("putarray", "", {{"val", "i32"}, {"ptr", "*i32"}});
-  module_->CreateFunction("starttime", "", {});
-  module_->CreateFunction("stoptime", "", {});
+  auto RegisterStandardLibrary =
+      [this](std::string func_name, std::string ret_type,
+             std::vector<std::pair<std::string, std::string>> param_types) {
+        module_->CreateFunction(func_name, ret_type, param_types);
+      };
+
+  RegisterStandardLibrary("getint", "i32", {});
+  RegisterStandardLibrary("getch", "i32", {});
+  RegisterStandardLibrary("getarray", "i32", {{"ptr", "*i32"}});
+  RegisterStandardLibrary("putint", "", {{"val", "i32"}});
+  RegisterStandardLibrary("putch", "", {{"val", "i32"}});
+  RegisterStandardLibrary("putarray", "", {{"val", "i32"}, {"ptr", "*i32"}});
+  RegisterStandardLibrary("starttime", "", {});
+  RegisterStandardLibrary("stoptime", "", {});
 }
 
 void IRGenVisitor::VisitCompUnit_(const CompUnitAST *ast) {
@@ -47,7 +53,7 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
   builder_->SetCurrentFunction(new_func);
 
   // 向 SymbolTable 注册函数名
-  symtab_->DefineGlobal(func_name, ret_type);
+  symtab_->DefineFunction(func_name, ret_type);
   symtab_->EnterScope();
 
   auto *entry_bb = builder_->CreateBlock("entry");
@@ -59,9 +65,18 @@ void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
   // 将函数参数存入符号表
   builder_->SetInsertPoint(entry_bb);
   for (auto &param : ast->params) {
-    Value param_addr = builder_->CreateAlloca("i32", param->ident);
-    builder_->CreateStore(Value::Reg("%" + param->ident), param_addr);
-    symtab_->Define(param->ident, SYMBOL_TYPE_VARIABLE, param_addr.reg_or_addr);
+    if (param->btype == "int") {
+      Value param_addr = builder_->CreateAlloca("i32", param->ident);
+      builder_->CreateStore(Value::Reg("%" + param->ident), param_addr);
+      symtab_->DefineVariable(param->ident, param_addr.reg_or_addr);
+    } else {
+      // 数组参数（指针）
+      // 这里我们简化处理，不分配栈空间，直接将参数寄存器注册为 POINTER
+      // 注意：这意味着我们不支持对数组参数本身的赋值（如 a = b），但这在 C/C++
+      // 数组参数中是允许的（作为指针变量） 如果需要支持
+      // assignment，我们需要分配 alloc *i32，但目前 alloc 只支持 i32
+      symtab_->DefinePointer(param->ident, "%" + param->ident);
+    }
   }
 
   // 分配返回值变量
@@ -125,9 +140,9 @@ void IRGenVisitor::VisitConstDef_(const ConstDefAST *ast) {
   }
 
   if (symtab_->IsGlobal()) {
-    symtab_->DefineGlobal(ast->ident, SYMBOL_TYPE_CONSTANT, init_val.imm);
+    symtab_->DefineGlobalConstant(ast->ident, init_val.imm);
   } else {
-    symtab_->Define(ast->ident, SYMBOL_TYPE_CONSTANT, init_val.imm);
+    symtab_->DefineConstant(ast->ident, init_val.imm);
   }
 }
 
@@ -138,34 +153,96 @@ void IRGenVisitor::VisitVarDecl_(const VarDeclAST *ast) {
 }
 
 void IRGenVisitor::VisitVarDef_(const VarDefAST *ast) {
-  if (symtab_->IsGlobal()) {
-    Value init_val = Value::Imm(0);
-    if (ast->init_val) {
-      init_val = Eval(ast->init_val.get());
-      if (!init_val.isImmediate()) {
-        // 全局变量初始化必须是常量表达式
-        std::cerr << "Global variable initializer must be a constant expression"
-                  << std::endl;
-        assert(false);
+  if (ast->array_size == nullptr) {
+    // 单个变量
+    if (symtab_->IsGlobal()) {
+      Value init_val = Value::Imm(0);
+      if (ast->init_val) {
+        init_val = Eval(ast->init_val.get());
+        if (!init_val.isImmediate()) {
+          // 全局变量初始化必须是常量表达式
+          std::cerr
+              << "Global variable initializer must be a constant expression"
+              << std::endl;
+          assert(false);
+        }
+      }
+
+      Value global_addr =
+          builder_->CreateGlobalAlloc("i32", ast->ident, init_val);
+      symtab_->DefineGlobalVariable(ast->ident, global_addr.reg_or_addr);
+      return;
+    } else {
+      // 局部变量
+      Value alloc_addr = builder_->CreateAlloca("i32", ast->ident);
+      symtab_->DefineVariable(ast->ident, alloc_addr.reg_or_addr);
+
+      // 初始化
+      if (ast->init_val) {
+        Value init_val = Eval(ast->init_val.get());
+        builder_->CreateStore(init_val, alloc_addr);
+      }
+      return;
+    }
+  } else {
+    // 数组变量
+    Value array_size_val = Eval(ast->array_size.get());
+    if (!array_size_val.isImmediate() || array_size_val.imm <= 0) {
+      std::cerr << "Array size must be a positive constant integer"
+                << std::endl;
+      assert(false);
+    }
+    int array_size = array_size_val.imm;
+
+    if (symtab_->IsGlobal()) {
+      // 全局数组
+      std::vector<Value> init_vals;
+
+      if (ast->init_val) {
+        FlattenInitList(ast->init_val.get(), init_vals);
+        if (init_vals.size() > static_cast<size_t>(array_size)) {
+          std::cerr << "[Semantic Error]: Too many initializers for array "
+                    << ast->ident << std::endl;
+          assert(false);
+        }
+
+        init_vals.resize(array_size, Value::Imm(0));
+      } else {
+        init_vals.resize(array_size, Value::Imm(0));
+      }
+
+      Value global_addr = builder_->CreateGlobalArrayAlloca(
+          "i32", ast->ident, array_size, init_vals);
+      symtab_->DefineGlobalArray(ast->ident, global_addr.reg_or_addr, {array_size});
+      return;
+    } else {
+      // 局部数组
+      Value alloc_addr =
+          builder_->CreateArrayAlloca("i32", ast->ident, array_size);
+      symtab_->DefineArray(ast->ident, alloc_addr.reg_or_addr, {array_size});
+
+      if (ast->init_val) {
+        std::vector<Value> init_vals;
+        FlattenInitList(ast->init_val.get(), init_vals);
+
+        if (init_vals.size() > static_cast<size_t>(array_size)) {
+          std::cerr << "[Semantic Error]: Too many initializers for array "
+                    << ast->ident << std::endl;
+          assert(false);
+        }
+
+        for (int i = 0; i < array_size; i++) {
+          Value idx = Value::Imm(i);
+          Value ptr = builder_->CreateGetElemPtr(alloc_addr, idx);
+
+          if (i < static_cast<int>(init_vals.size())) {
+            builder_->CreateStore(init_vals[i], ptr);
+          } else {
+            builder_->CreateStore(Value::Imm(0), ptr);
+          }
+        }
       }
     }
-
-    Value global_addr =
-        builder_->CreateGlobalAlloc("i32", ast->ident, init_val);
-    symtab_->DefineGlobal(ast->ident, SYMBOL_TYPE_VARIABLE,
-                          global_addr.reg_or_addr);
-    return;
-  } else {
-    // 局部变量
-    Value alloc_addr = builder_->CreateAlloca("i32", ast->ident);
-    symtab_->Define(ast->ident, SYMBOL_TYPE_VARIABLE, alloc_addr.reg_or_addr);
-
-    // 初始化
-    if (ast->init_val) {
-      Value init_val = Eval(ast->init_val.get());
-      builder_->CreateStore(init_val, alloc_addr);
-    }
-    return;
   }
 }
 
@@ -334,19 +411,35 @@ Value IRGenVisitor::EvalLVal(LValAST *ast) {
     std::cerr << "symbol not found: " << ast->ident << std::endl;
     assert(false);
   }
-  Value val;
+
+  Value base;
   if (lval_symbol->type == SYMBOL_TYPE_CONSTANT) {
-    val = Value::Imm(*lval_symbol);
-  } else if (lval_symbol->type == SYMBOL_TYPE_VARIABLE) {
-    val = Value::Addr(*lval_symbol);
+    return Value::Imm(*lval_symbol);
+  } else if (lval_symbol->type == SYMBOL_TYPE_VARIABLE ||
+             lval_symbol->type == SYMBOL_TYPE_ARRAY) {
+    base = Value::Addr(*lval_symbol);
+  } else if (lval_symbol->type == SYMBOL_TYPE_POINTER) {
+    base = Value::Reg(std::get<std::string>(lval_symbol->value));
   } else {
     std::cerr << "unsupported lval symbol type for: " << ast->ident
               << std::endl;
     assert(false);
   }
 
-  // 常量直接返回立即数，变量返回地址
-  return val;
+  if (ast->index_exp) {
+    Value index = Eval(ast->index_exp.get());
+    Value ptr = builder_->CreateGetElemPtr(base, index);
+    return ptr;
+  } else {
+    if (lval_symbol->type == SYMBOL_TYPE_ARRAY) {
+      Value ptr = builder_->CreateGetElemPtr(base, Value::Imm(0));
+      return Value::Reg(ptr.reg_or_addr);
+    } else if (lval_symbol->type == SYMBOL_TYPE_POINTER) {
+      return base;
+    } else {
+      return base;
+    }
+  }
 }
 
 Value IRGenVisitor::EvalNumber(NumberAST *ast) { return Value::Imm(ast->val); }
@@ -486,6 +579,23 @@ Value IRGenVisitor::EvalLogicalOr(BinaryExpAST *ast) {
   Value res_reg = end_bb->AddParam("i32");
   return res_reg;
 }
+
+void IRGenVisitor::FlattenInitList(const BaseAST *ast,
+                                   std::vector<Value> &init_vals) {
+  if (auto *init_var = dynamic_cast<const InitVarAST *>(ast)) {
+    if (init_var->is_list) {
+      for (auto &child : init_var->inits) {
+        FlattenInitList(child.get(), init_vals);
+      }
+    } else {
+      init_vals.push_back(Eval(init_var->exp.get()));
+    }
+  } else {
+    // 应该不会走到这里
+    assert(false && "FlattenInitList: unexpected AST type");
+  }
+}
+
 // ==================== Visitor接口实现 ====================
 
 void IRGenVisitor::Visit(CompUnitAST &node) { VisitCompUnit_(&node); }
@@ -496,6 +606,7 @@ void IRGenVisitor::Visit(ConstDeclAST &node) { VisitConstDecl_(&node); }
 void IRGenVisitor::Visit(ConstDefAST &node) { VisitConstDef_(&node); }
 void IRGenVisitor::Visit(VarDeclAST &node) { VisitVarDecl_(&node); }
 void IRGenVisitor::Visit(VarDefAST &node) { VisitVarDef_(&node); }
+void IRGenVisitor::Visit(InitVarAST &node) {}
 void IRGenVisitor::Visit(AssignStmtAST &node) { VisitAssignStmt_(&node); }
 void IRGenVisitor::Visit(ExpStmtAST &node) { VisitExpStmt_(&node); }
 void IRGenVisitor::Visit(IfStmtAST &node) { VisitIfStmt_(&node); }

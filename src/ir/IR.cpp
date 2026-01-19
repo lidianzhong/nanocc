@@ -23,6 +23,9 @@ Value Value::Imm(const symbol_t &symbol) {
 }
 
 Value Value::Addr(const symbol_t &symbol) {
+  if (std::holds_alternative<array_info_t>(symbol.value)) {
+    return Value::Addr(std::get<array_info_t>(symbol.value).addr);
+  }
   return Value::Addr(std::get<std::string>(symbol.value));
 }
 

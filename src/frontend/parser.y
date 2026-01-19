@@ -53,7 +53,7 @@ using namespace std;
 %type <ast_val> Exp LVal PrimaryExp Number UnaryExp
 %type <ast_val> MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <str_val> BType UnaryOp
-%type <ast_list> ConstDefList VarDefList BlockItemList FuncRParams
+%type <ast_list> ConstDefList VarDefList BlockItemList ConstExpList InitValList FuncRParams
 %type <param_list> FuncFParams
 
 %%
@@ -119,19 +119,50 @@ ConstDefList
   }
   ;
 
-// ConstDef ::= IDENT "=" ConstInitVal
+// ConstDef ::= IDENT ["[" ConstExp "]"] "=" ConstInitVal;
 ConstDef
   : IDENT '=' ConstInitVal {
     auto ast = new ConstDefAST();
     ast->ident = *unique_ptr<string>($1);
+    ast->array_size = nullptr;
     ast->init_val = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | IDENT '[' ConstExp ']' '=' ConstInitVal {
+    auto ast = new ConstDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->array_size = unique_ptr<BaseAST>($3);
+    ast->init_val = unique_ptr<BaseAST>($6);
     $$ = ast;
   }
   ;
 
-// ConstInitVal ::= ConstExp
+// ConstInitVal ::= ConstExp | "{" [ConstExp {"," ConstExp}] "}";
 ConstInitVal
-  : ConstExp { $$ = $1; }
+  : ConstExp { 
+    auto ast = new InitVarAST();
+    ast->is_list = false;
+    ast->must_be_constant = true;
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+   }
+  | '{' '}' {
+    auto ast = new InitVarAST();
+    ast->is_list = true;
+    ast->must_be_constant = true;
+    ast->exp = nullptr;
+    ast->inits = std::vector<std::unique_ptr<BaseAST>>();
+    $$ = ast;
+  }
+  | '{' ConstExpList '}' {
+    auto ast = new InitVarAST();
+    ast->is_list = true;
+    ast->must_be_constant = true;
+    ast->exp = nullptr;
+    ast->inits = std::move(*$2);
+    delete $2;
+    $$ = ast;
+  }
   ;
 
 // VarDecl ::= BType VarDef {"," VarDef} ";"
@@ -156,7 +187,8 @@ VarDefList
   }
   ;
 
-// VarDef ::= IDENT | IDENT "=" InitVal
+// VarDef ::= IDENT ["[" ConstExp "]"]
+//          | IDENT ["[" ConstExp "]"] "=" InitVal
 VarDef
   : IDENT {
     auto ast = new VarDefAST();
@@ -170,11 +202,61 @@ VarDef
     ast->init_val = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
+  | IDENT '[' ConstExp ']' {
+    auto ast = new VarDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->array_size = unique_ptr<BaseAST>($3);
+    ast->init_val = nullptr;
+    $$ = ast;
+  }
+  | IDENT '[' ConstExp ']' '=' InitVal {
+    auto ast = new VarDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->array_size = unique_ptr<BaseAST>($3);
+    ast->init_val = unique_ptr<BaseAST>($6);
+    $$ = ast;
+  }
   ;
 
-// InitVal ::= Exp
+// InitVal ::= Exp | "{" [Exp {"," Exp}] "}";
 InitVal
-  : Exp { $$ = $1; }
+  : Exp { 
+    auto ast = new InitVarAST();
+    ast->is_list = false;
+    ast->must_be_constant = false;
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+   }
+  | '{' '}' {
+    auto ast = new InitVarAST();
+    ast->is_list = true;
+    ast->must_be_constant = false;
+    ast->exp = nullptr;
+    ast->inits = std::vector<std::unique_ptr<BaseAST>>();
+    $$ = ast;
+  }
+  | '{' InitValList '}' {
+    auto ast = new InitVarAST();
+    ast->is_list = true;
+    ast->must_be_constant = false;
+    ast->exp = nullptr;
+    ast->inits = std::move(*$2);;
+    delete $2;
+    $$ = ast;
+  }
+  ;
+
+// InitValList ::= InitVal {"," InitVal}
+InitValList
+  : InitVal {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | InitValList ',' InitVal {
+    $1->push_back(unique_ptr<BaseAST>($3));
+    $$ = $1;
+  }
   ;
 
 // FuncFParam ::= BType IDENT
@@ -363,11 +445,17 @@ PrimaryExp
   | Number { $$ = $1; }
   ;
 
-// LVal ::= IDENT
+// LVal ::= IDENT ["[" Exp "]"];
 LVal
   : IDENT {
     auto ast = new LValAST();
     ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
+  | IDENT '[' Exp ']' {
+    auto ast = new LValAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->index_exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   ;
@@ -554,6 +642,19 @@ Exp
 // ConstExp ::= Exp
 ConstExp
   : Exp { $$ = $1; }
+  ;
+
+// ConstExpList ::= ConstExp {"," ConstExp}
+ConstExpList
+  : ConstExp {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ConstExpList ',' ConstExp {
+    $1->push_back(unique_ptr<BaseAST>($3));
+    $$ = $1;
+  }
   ;
 
 %%

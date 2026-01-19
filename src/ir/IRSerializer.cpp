@@ -113,6 +113,35 @@ static std::string InstructionToString(const Instruction &inst) {
     }
     break;
   }
+  case Opcode::AllocArray: {
+    oss << "  " << OperandToString(inst.args[0]) << " = alloc [i32, "
+        << OperandToString(inst.args[1]) << "]";
+    break;
+  }
+  case Opcode::GlobalAllocArray: {
+    oss << "global " << OperandToString(inst.args[0]) << " = alloc [i32, "
+        << OperandToString(inst.args[1]) << "], ";
+    const auto &init_vals = std::get<std::vector<Value>>(inst.args[2]);
+    bool all_zero = true;
+    for (const auto &v : init_vals) {
+      if (!v.isImmediate() || v.imm != 0) {
+        all_zero = false;
+        break;
+      }
+    }
+    if (all_zero) {
+      oss << "zeroinit";
+    } else {
+      oss << "{";
+      for (size_t i = 0; i < init_vals.size(); i++) {
+        if (i > 0)
+          oss << ", ";
+        oss << init_vals[i].toString();
+      }
+      oss << "}";
+    }
+    break;
+  }
   case Opcode::Load:
     oss << "  " << OperandToString(inst.args[0]) << " = load "
         << OperandToString(inst.args[1]);
@@ -120,6 +149,11 @@ static std::string InstructionToString(const Instruction &inst) {
   case Opcode::Store:
     oss << "  store " << OperandToString(inst.args[0]) << ", "
         << OperandToString(inst.args[1]);
+    break;
+  case Opcode::GetElemPtr:
+    oss << "  " << OperandToString(inst.args[0]) << " = getelemptr "
+        << OperandToString(inst.args[1]) << ", "
+        << OperandToString(inst.args[2]);
     break;
   case Opcode::Br: {
     // br cond, then_target, else_target

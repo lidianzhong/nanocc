@@ -8,6 +8,7 @@ class ConstDeclAST;
 class ConstDefAST;
 class VarDeclAST;
 class VarDefAST;
+class InitVarAST;
 class AssignStmtAST;
 class ExpStmtAST;
 class IfStmtAST;
@@ -33,6 +34,7 @@ public:
   virtual void Visit(ConstDefAST &node) = 0;
   virtual void Visit(VarDeclAST &node) = 0;
   virtual void Visit(VarDefAST &node) = 0;
+  virtual void Visit(InitVarAST &node) = 0;
   virtual void Visit(AssignStmtAST &node) = 0;
   virtual void Visit(ExpStmtAST &node) = 0;
   virtual void Visit(IfStmtAST &node) = 0;

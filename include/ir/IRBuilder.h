@@ -22,10 +22,15 @@ public:
         std::make_unique<Instruction>(op, std::forward<T>(args)...));
   }
 
-  Value CreateAlloca(const std::string &type, const std::string &var_name = "",
-                     bool unique = true);
+  Value CreateAlloca(const std::string &type, const std::string &var_name = "");
   Value CreateGlobalAlloc(const std::string &type, const std::string &var_name,
                           Value init_val);
+  Value CreateArrayAlloca(const std::string &type, const std::string &var_name,
+                          int size);
+  Value CreateGlobalArrayAlloca(const std::string &type,
+                                const std::string &var_name, int size,
+                                const std::vector<Value> &init_vals);
+  Value CreateGetElemPtr(const Value &base_addr, const Value &index);
   Value CreateLoad(const Value &addr);
   void CreateStore(const Value &value, const Value &addr);
 
@@ -53,7 +58,7 @@ public:
 
 private:
   Value NewTempReg_();
-  Value NewTempAddr_(const std::string &addr_name = "", bool unique = true);
+  Value NewTempAddr_(const std::string &addr_name = "");
   std::string NewTempLabel_(const std::string &prefix = "");
 
   int temp_reg_id_ = 0;
