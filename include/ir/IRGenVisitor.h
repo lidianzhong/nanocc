@@ -44,7 +44,7 @@ private:
   std::unique_ptr<IRBuilder> builder_;
   std::unique_ptr<SymbolTable> symtab_;
 
-  // 循环相关
+  // 循环相关 targets (BasicBlock*)
   std::vector<BasicBlock *> break_targets_;
   std::vector<BasicBlock *> continue_targets_;
 
@@ -56,6 +56,7 @@ private:
   void VisitConstDef_(const ConstDefAST *ast);
   void VisitVarDecl_(const VarDeclAST *ast);
   void VisitVarDef_(const VarDefAST *ast);
+  void VisitInitVar_(const InitVarAST *ast);
   void VisitAssignStmt_(const AssignStmtAST *ast);
   void VisitExpStmt_(const ExpStmtAST *ast);
   void VisitIfStmt_(const IfStmtAST *ast);
@@ -64,15 +65,22 @@ private:
   void VisitContinueStmt_(const ContinueStmtAST *ast);
   void VisitReturnStmt_(const ReturnStmtAST *ast);
 
-  Value Eval(BaseAST *ast);
-  Value EvalLVal(LValAST *ast);
-  Value EvalNumber(NumberAST *ast);
-  Value EvalUnaryExp(UnaryExpAST *ast);
-  Value EvalBinaryExp(BinaryExpAST *ast);
-  Value EvalFuncCall(FuncCallAST *ast);
+  // Return Type is now Value*
+  Value *Eval(BaseAST *ast);
+  Value *EvalLVal(LValAST *ast);
+  // EvalNumber returns ConstantInt*
+  Value *EvalNumber(NumberAST *ast);
+  Value *EvalUnaryExp(UnaryExpAST *ast);
+  Value *EvalBinaryExp(BinaryExpAST *ast);
+  Value *EvalFuncCall(FuncCallAST *ast);
 
-  Value EvalLogicalAnd(BinaryExpAST *ast);
-  Value EvalLogicalOr(BinaryExpAST *ast);
+  Value *EvalLogicalAnd(BinaryExpAST *ast);
+  Value *EvalLogicalOr(BinaryExpAST *ast);
 
-  void FlattenInitList(const BaseAST *ast, std::vector<Value> &init_vals);
+  int EvaluateConstExpr(BaseAST *ast);
+
+  // Helper for initializing local arrays
+  void InitializeLocalArray(const InitVarAST *init, Value *baseAddr, Type *type);
+  // Helper for initializing global arrays
+  Value *GetGlobalArrayInit(const InitVarAST *init, Type *type);
 };

@@ -112,30 +112,12 @@ void FunctionCodeGen::EmitFunction(const koopa_raw_function_t &func) {
     koopa_raw_value_t param = (koopa_raw_value_t)func_->params.buffer[i];
     size_t offset = GetStackOffset(param);
     if (i < 8) {
-      if (offset < 2048)
-        std::cout << "  sw a" << i << ", " << offset << "(sp)" << std::endl;
-      else {
-        std::cout << "  li t0, " << offset << std::endl;
-        std::cout << "  add t0, sp, t0" << std::endl;
-        std::cout << "  sw a" << i << ", (t0)" << std::endl;
-      }
+      SafeStore("a" + std::to_string(i), offset);
     } else {
       size_t stack_size = stack_frame_.GetStackSize();
       size_t src_offset = stack_size + (i - 8) * 4;
-      if (src_offset < 2048) {
-        std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
-      } else {
-        std::cout << "  li t0, " << src_offset << std::endl;
-        std::cout << "  add t0, sp, t0" << std::endl;
-        std::cout << "  lw t0, (t0)" << std::endl;
-      }
-      if (offset < 2048) {
-        std::cout << "  sw t0, " << offset << "(sp)" << std::endl;
-      } else {
-        std::cout << "  li t1, " << offset << std::endl;
-        std::cout << "  add t1, sp, t1" << std::endl;
-        std::cout << "  sw t0, (t1)" << std::endl;
-      }
+      SafeLoad("t0", src_offset);
+      SafeStore("t0", offset);
     }
   }
 
@@ -175,13 +157,7 @@ void FunctionCodeGen::EmitPrologue() {
 
   if (stack_frame_.HasCall()) {
     int ra_offset = size - 4;
-    if (ra_offset >= -2048 && ra_offset <= 2047) {
-      std::cout << "  sw ra, " << ra_offset << "(sp)" << std::endl;
-    } else {
-      std::cout << "  li t0, " << ra_offset << std::endl;
-      std::cout << "  add t0, sp, t0" << std::endl;
-      std::cout << "  sw ra, (t0)" << std::endl;
-    }
+    SafeStore("ra", ra_offset);
   }
 }
 
@@ -192,13 +168,7 @@ void FunctionCodeGen::EmitEpilogue() {
   int size = static_cast<int>(stack_frame_.GetStackSize());
   if (stack_frame_.HasCall()) {
     int ra_offset = size - 4;
-    if (ra_offset >= -2048 && ra_offset <= 2047) {
-      std::cout << "  lw ra, " << ra_offset << "(sp)" << std::endl;
-    } else {
-      std::cout << "  li t0, " << ra_offset << std::endl;
-      std::cout << "  add t0, sp, t0" << std::endl;
-      std::cout << "  lw ra, (t0)" << std::endl;
-    }
+    SafeLoad("ra", ra_offset);
   }
 
   if (size >= -2048 && size <= 2047) {
@@ -225,18 +195,7 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
   switch (kind.tag) {
   case KOOPA_RVT_RETURN: {
     if (kind.data.ret.value) {
-      switch (kind.data.ret.value->kind.tag) {
-      case KOOPA_RVT_INTEGER:
-        // 整数常量直接放到 a0
-        std::cout << "  li a0, " << kind.data.ret.value->kind.data.integer.value
-                  << std::endl;
-        break;
-      default: {
-        // 其他值从栈中加载到 a0
-        size_t ret_offset = GetStackOffset(kind.data.ret.value);
-        std::cout << "  lw a0, " << ret_offset << "(sp)" << std::endl;
-      }
-      }
+      LoadReg("a0", kind.data.ret.value);
     }
 
     std::string label_name = std::string(func_->name).substr(1) + "_epilogue";
@@ -252,22 +211,10 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     size_t res_offset = GetStackOffset(value);
 
     // 加载左操作数到 t0
-    if (binary.lhs->kind.tag == KOOPA_RVT_INTEGER) {
-      std::cout << "  li t0, " << binary.lhs->kind.data.integer.value
-                << std::endl;
-    } else {
-      size_t lhs_offset = GetStackOffset(binary.lhs);
-      std::cout << "  lw t0, " << lhs_offset << "(sp)" << std::endl;
-    }
+    LoadReg("t0", binary.lhs);
 
     // 加载右操作数到 t1
-    if (binary.rhs->kind.tag == KOOPA_RVT_INTEGER) {
-      std::cout << "  li t1, " << binary.rhs->kind.data.integer.value
-                << std::endl;
-    } else {
-      size_t rhs_offset = GetStackOffset(binary.rhs);
-      std::cout << "  lw t1, " << rhs_offset << "(sp)" << std::endl;
-    }
+    LoadReg("t1", binary.rhs);
 
     switch (binary.op) {
     case KOOPA_RBO_NOT_EQ:
@@ -331,7 +278,7 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     }
 
     // 将结果存回栈
-    std::cout << "  sw t0, " << res_offset << "(sp)" << std::endl;
+    SafeStore("t0", res_offset);
     break;
   }
   case KOOPA_RVT_ALLOC:
@@ -341,45 +288,17 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     const auto &load = kind.data.load;
     size_t res_offset = GetStackOffset(value);
 
-    if (load.src->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
-      std::string name = load.src->name;
-      assert(name.length() > 0 && name[0] == '@');
-      name = name.substr(1);
-      std::cout << "  la t0, " << name << std::endl;
-      std::cout << "  lw t0, 0(t0)" << std::endl;
-    } else {
-      size_t src_offset = GetStackOffset(load.src);
-      std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
-    }
-    std::cout << "  sw t0, " << res_offset << "(sp)" << std::endl;
+    LoadReg("t0", load.src);
+    std::cout << "  lw t0, 0(t0)" << std::endl;
+
+    SafeStore("t0", res_offset);
     break;
   }
   case KOOPA_RVT_STORE: {
-    // "store src_imm/src_offset, dest_offset"
     const auto &store = kind.data.store;
-    switch (store.value->kind.tag) {
-    case KOOPA_RVT_INTEGER: {
-      int32_t src_imm = store.value->kind.data.integer.value;
-      std::cout << "  li t0, " << src_imm << std::endl;
-      break;
-    }
-    default:
-      // 除了立即数，其余都放在栈上
-      size_t src_offset = GetStackOffset(store.value);
-      std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
-      break;
-    }
-
-    if (store.dest->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
-      std::string name = store.dest->name;
-      assert(name.length() > 0 && name[0] == '@');
-      name = name.substr(1);
-      std::cout << "  la t1, " << name << std::endl;
-      std::cout << "  sw t0, 0(t1)" << std::endl;
-    } else {
-      size_t dest_offset = GetStackOffset(store.dest);
-      std::cout << "  sw t0, " << dest_offset << "(sp)" << std::endl;
-    }
+    LoadReg("t0", store.value);
+    LoadReg("t1", store.dest);
+    std::cout << "  sw t0, 0(t1)" << std::endl;
     break;
   }
   case KOOPA_RVT_BRANCH: {
@@ -388,13 +307,7 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     std::string false_label = std::string(branch.false_bb->name).substr(1);
 
     // 加载条件
-    if (branch.cond->kind.tag == KOOPA_RVT_INTEGER) {
-      std::cout << "  li t0, " << branch.cond->kind.data.integer.value
-                << std::endl;
-    } else {
-      size_t cond_offset = GetStackOffset(branch.cond);
-      std::cout << "  lw t0, " << cond_offset << "(sp)" << std::endl;
-    }
+    LoadReg("t0", branch.cond);
 
     // 条件为 false 时跳到 false 分支
     std::cout << "  beqz t0, " << false_label << "_args" << std::endl;
@@ -421,30 +334,13 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     const auto &call = kind.data.call;
     for (size_t i = 0; i < call.args.len; ++i) {
       koopa_raw_value_t arg = (koopa_raw_value_t)call.args.buffer[i];
-      if (arg->kind.tag == KOOPA_RVT_INTEGER) {
-        std::cout << "  li t0, " << arg->kind.data.integer.value << std::endl;
-      } else {
-        size_t offset = GetStackOffset(arg);
-        if (offset < 2048) {
-          std::cout << "  lw t0, " << offset << "(sp)" << std::endl;
-        } else {
-          std::cout << "  li t1, " << offset << std::endl;
-          std::cout << "  add t1, sp, t1" << std::endl;
-          std::cout << "  lw t0, (t1)" << std::endl;
-        }
-      }
+      LoadReg("t0", arg);
 
       if (i < 8) {
         std::cout << "  mv a" << i << ", t0" << std::endl;
       } else {
         int slot_offset = (i - 8) * 4;
-        if (slot_offset < 2048) {
-          std::cout << "  sw t0, " << slot_offset << "(sp)" << std::endl;
-        } else {
-          std::cout << "  li t1, " << slot_offset << std::endl;
-          std::cout << "  add t1, sp, t1" << std::endl;
-          std::cout << "  sw t0, (t1)" << std::endl;
-        }
+        SafeStore("t0", slot_offset);
       }
     }
 
@@ -452,47 +348,99 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
 
     if (value->ty->tag != KOOPA_RTT_UNIT) {
       size_t offset = GetStackOffset(value);
-      if (offset < 2048) {
-        std::cout << "  sw a0, " << offset << "(sp)" << std::endl;
-      } else {
-        std::cout << "  li t1, " << offset << std::endl;
-        std::cout << "  add t1, sp, t1" << std::endl;
-        std::cout << "  sw a0, (t1)" << std::endl;
-      }
+      SafeStore("a0", offset);
     }
     break;
   }
-  case KOOPA_RVT_GET_ELEM_PTR: {
-    const auto &gep = kind.data.get_elem_ptr;
+  case KOOPA_RVT_GET_PTR: {
+    const auto &gp = kind.data.get_ptr;
     size_t res_offset = GetStackOffset(value);
 
     // 加载基地址
-    if (gep.src->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
-      std::string name = gep.src->name;
-      assert(name.length() > 0 && name[0] == '@');
-      name = name.substr(1);
-      std::cout << "  la t0, " << name << std::endl;
-    } else {
-      size_t src_offset = GetStackOffset(gep.src);
-      std::cout << "  lw t0, " << src_offset << "(sp)" << std::endl;
-    }
+    LoadReg("t0", gp.src);
 
     // 计算偏移
-    if (gep.index->kind.tag == KOOPA_RVT_INTEGER) {
-      int32_t index = gep.index->kind.data.integer.value;
-      int32_t offset = index * 4; // 假设元素大小为 4 字节
+    if (gp.index->kind.tag == KOOPA_RVT_INTEGER) {
+      // 保持优化，不通过 LoadReg + slli
+      int32_t index = gp.index->kind.data.integer.value;
+      
+      // Calculate type size of pointee
+      size_t type_size = ProgramCodeGen::CalcTypeSize(gp.src->ty->data.pointer.base);
+      int32_t offset = index * type_size;
       std::cout << "  li t1, " << offset << std::endl;
     } else {
-      size_t index_offset = GetStackOffset(gep.index);
-      std::cout << "  lw t1, " << index_offset << "(sp)" << std::endl;
-      std::cout << "  slli t1, t1, 2" << std::endl; // 假设元素大小为 4 字节
+      LoadReg("t1", gp.index);
+      
+      size_t type_size = ProgramCodeGen::CalcTypeSize(gp.src->ty->data.pointer.base);
+      // For size 4 use shift, otherwise mul. 简单起见，这里总是 mul 或者假设为 4. 
+      // 之前代码假设为 4. 
+      // 但对于 GetPtr, src is pointer. gp.src->ty is pointer to T.
+      // GetPtr result is pointer to T.
+      // Offset is index * sizeof(T).
+      // 之前假定 4 字节. 对于 int* 来说是正确的. 对于数组指针比如 int(*)[10], sizeof(T) = 40.
+      
+      if (type_size == 4) {
+          std::cout << "  slli t1, t1, 2" << std::endl;
+      } else {
+          std::cout << "  li t2, " << type_size << std::endl;
+          std::cout << "  mul t1, t1, t2" << std::endl;
+      }
     }
 
     // 计算最终地址
     std::cout << "  add t0, t0, t1" << std::endl;
 
     // 存储结果地址
-    std::cout << "  sw t0, " << res_offset << "(sp)" << std::endl;
+    SafeStore("t0", res_offset);
+    break;
+  }
+
+  case KOOPA_RVT_GET_ELEM_PTR: {
+    const auto &gep = kind.data.get_elem_ptr;
+    size_t res_offset = GetStackOffset(value);
+
+    // 加载基地址
+    LoadReg("t0", gep.src);
+
+    // 计算偏移
+    auto src_ty = gep.src->ty;
+    // src_ty 是 pointer to array/struct/etc.
+    // getelemptr drills down.
+    // T = src_ty->base.
+    // Ensure T is array?
+    // According to Koopa spec: GEP on pointer to array/struct.
+    // Result is pointer to Element.
+    // Element size = sizeof(T.element).
+    
+    // Example: [4096 x i32]*. GEP 0. Element type is i32, size 4.
+    // Wait. GEP on *Array.
+    // The size of element is type size of (Array's element).
+    // src_ty->data.pointer.base must be ARRAY.
+    assert(src_ty->tag == KOOPA_RTT_POINTER);
+    auto base_ty = src_ty->data.pointer.base;
+    assert(base_ty->tag == KOOPA_RTT_ARRAY);
+    
+    size_t elem_size = ProgramCodeGen::CalcTypeSize(base_ty->data.array.base);
+
+    if (gep.index->kind.tag == KOOPA_RVT_INTEGER) {
+      int32_t index = gep.index->kind.data.integer.value;
+      int32_t offset = index * elem_size; 
+      std::cout << "  li t1, " << offset << std::endl;
+    } else {
+      LoadReg("t1", gep.index);
+      if (elem_size == 4) {
+          std::cout << "  slli t1, t1, 2" << std::endl;
+      } else {
+          std::cout << "  li t2, " << elem_size << std::endl;
+          std::cout << "  mul t1, t1, t2" << std::endl;
+      }
+    }
+
+    // 计算最终地址
+    std::cout << "  add t0, t0, t1" << std::endl;
+
+    // 存储结果地址
+    SafeStore("t0", res_offset);
     break;
   }
 
@@ -531,10 +479,10 @@ void FunctionCodeGen::AllocateStackSpace() {
 
   stack_frame_.Init(max_args, has_call);
 
-  // 为函数参数分配空间
+  // 为函数参数分配空间 (参数通常是 i32 或指针，大小为 4)
   for (size_t i = 0; i < func_->params.len; ++i) {
     koopa_raw_value_t param = (koopa_raw_value_t)func_->params.buffer[i];
-    stack_frame_.AllocSlot(param);
+    stack_frame_.AllocSlot(param, 4);
   }
 
   for (size_t i = 0; i < bbs.len; ++i) {
@@ -543,14 +491,20 @@ void FunctionCodeGen::AllocateStackSpace() {
     // 为块参数分配空间
     for (size_t j = 0; j < params.len; ++j) {
       koopa_raw_value_t param = (koopa_raw_value_t)params.buffer[j];
-      stack_frame_.AllocSlot(param);
+      stack_frame_.AllocSlot(param, 4);
     }
     // 为有返回值的指令分配空间
     koopa_raw_slice_t insts = bb->insts;
     for (size_t j = 0; j < insts.len; ++j) {
       koopa_raw_value_t inst = (koopa_raw_value_t)insts.buffer[j];
       if (inst->ty->tag != KOOPA_RTT_UNIT) {
-        stack_frame_.AllocSlot(inst);
+        if (inst->kind.tag == KOOPA_RVT_ALLOC) {
+            // Alloc 指令不仅返回指针，还要在栈上分配它所指向类型的大小
+            size_t size = ProgramCodeGen::CalcTypeSize(inst->ty->data.pointer.base);
+            stack_frame_.AllocSlot(inst, size);
+        } else {
+            stack_frame_.AllocSlot(inst, 4);
+        }
       }
     }
   }
@@ -563,19 +517,63 @@ size_t FunctionCodeGen::GetStackOffset(koopa_raw_value_t val) {
   return stack_frame_.GetOffset(val);
 }
 
+void FunctionCodeGen::LoadReg(const std::string &reg, koopa_raw_value_t val) {
+    if (val->kind.tag == KOOPA_RVT_INTEGER) {
+        std::cout << "  li " << reg << ", " << val->kind.data.integer.value << std::endl;
+        return;
+    }
+    
+    if (val->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+         std::string name = val->name;
+         name = name.substr(1);
+         std::cout << "  la " << reg << ", " << name << std::endl;
+         return;
+    }
+    
+    size_t offset = GetStackOffset(val);
+    
+    // 如果是 Alloc 指令，Offset 是分配的空间的基址，值就是 Address (sp + offset)
+    if (val->kind.tag == KOOPA_RVT_ALLOC) {
+         if (offset >= -2048 && offset <= 2047) {
+             std::cout << "  addi " << reg << ", sp, " << offset << std::endl;
+         } else {
+             std::cout << "  li " << "t6" << ", " << offset << std::endl;
+             std::cout << "  add " << reg << ", sp, " << "t6" << std::endl;
+         }
+    } else {
+         // 其他情况（参数、临时变量），栈槽里存的是值，需要 Load
+         SafeLoad(reg, offset);
+    }
+}
+
 void FunctionCodeGen::EmitBlockArgs(koopa_raw_basic_block_t bb,
                                     koopa_raw_slice_t args) {
   for (size_t i = 0; i < args.len; ++i) {
     koopa_raw_value_t arg = (koopa_raw_value_t)args.buffer[i];
     koopa_raw_value_t param = (koopa_raw_value_t)bb->params.buffer[i];
     size_t param_offset = GetStackOffset(param);
+    
+    LoadReg("t1", arg);
+    SafeStore("t1", param_offset);
+  }
+}
 
-    if (arg->kind.tag == KOOPA_RVT_INTEGER) {
-      std::cout << "  li t1, " << arg->kind.data.integer.value << std::endl;
-    } else {
-      size_t arg_offset = GetStackOffset(arg);
-      std::cout << "  lw t1, " << arg_offset << "(sp)" << std::endl;
-    }
-    std::cout << "  sw t1, " << param_offset << "(sp)" << std::endl;
+void FunctionCodeGen::SafeLoad(const std::string &reg, int offset) {
+  if (offset >= -2048 && offset <= 2047) {
+    std::cout << "  lw " << reg << ", " << offset << "(sp)" << std::endl;
+  } else {
+    std::cout << "  li t6, " << offset << std::endl;
+    std::cout << "  add t6, sp, t6" << std::endl;
+    std::cout << "  lw " << reg << ", (t6)" << std::endl;
+  }
+}
+
+void FunctionCodeGen::SafeStore(const std::string &reg, int offset) {
+  if (offset >= -2048 && offset <= 2047) {
+    std::cout << "  sw " << reg << ", " << offset << "(sp)" << std::endl;
+  } else {
+    std::cout << "  li t6, " << offset << std::endl;
+    std::cout << "  add t6, sp, t6" << std::endl;
+    std::cout << "  sw " << reg << ", (t6)" << std::endl;
   }
 }

@@ -1,72 +1,58 @@
 #pragma once
 
-#include "ir/IR.h"
-
+#include "ir/Value.h" 
+#include <map>
 #include <string>
-#include <unordered_map>
-#include <utility>
-#include <variant>
 #include <vector>
-
-typedef enum {
-  SYMBOL_TYPE_CONSTANT,
-  SYMBOL_TYPE_VARIABLE,
-  SYMBOL_TYPE_ARRAY,
-  SYMBOL_TYPE_POINTER,
-  SYMBOL_TYPE_FUNCTION
-} symbol_type_t;
-
-struct func_info_t {
-  std::string ret_type;
-  func_info_t(const std::string &ret_type) : ret_type(ret_type) {}
-};
-
-struct array_info_t {
-  std::string addr;
-  std::vector<int> dims;
-  array_info_t(const std::string &addr, const std::vector<int> &dims)
-      : addr(addr), dims(dims) {}
-};
-
-struct symbol_t {
-  std::string name;
-  symbol_type_t type;
-  std::variant<int, std::string, func_info_t, array_info_t> value; // 常量值/变量名/函数信息/数组信息
-
-  symbol_t(std::string name, symbol_type_t type,
-           std::variant<int, std::string, func_info_t, array_info_t> value)
-      : name(std::move(name)), type(type), value(std::move(value)) {}
-};
+#include <memory> 
 
 class SymbolTable {
 public:
-  SymbolTable();
-  ~SymbolTable() = default;
+    using SymbolMap = std::map<std::string, Value *>;
 
-  void DefineConstant(const std::string &name, int value);
-  void DefineVariable(const std::string &name, const std::string &reg_or_addr);
-  void DefineArray(const std::string &name, const std::string &addr,
-                   const std::vector<int> &dims);
-  void DefinePointer(const std::string &name, const std::string &reg);
+    SymbolTable() {
+        // 初始化全局作用域
+        EnterScope(); 
+    }
 
-  void DefineGlobalConstant(const std::string &name, int value);
-  void DefineGlobalVariable(const std::string &name, const std::string &reg_or_addr);
-  void DefineGlobalArray(const std::string &name, const std::string &addr,
-                        const std::vector<int> &dims);
-  void DefineFunction(const std::string &name,
-                      const std::string &ret_type);
+    // 进入一个新的作用域
+    void EnterScope() {
+        layers_.emplace_back();
+    }
 
-  const symbol_t *Lookup(const std::string &name) const;
+    // 退出当前作用域
+    void ExitScope() {
+        if (!layers_.empty()) {
+            layers_.pop_back();
+        }
+    }
 
-  void EnterScope();
-  void ExitScope();
+    // 在当前作用域插入符号
+    bool insert(const std::string &name, Value *val) {
+        auto &curr_scope = layers_.back();
+        if (curr_scope.find(name) != curr_scope.end()) {
+            return false; // 重复定义
+        }
+        curr_scope[name] = val;
+        return true;
+    }
 
-  bool IsGlobal() const { return scopes_.size() == 1; }
+    // 查找符号 (从内层向外层查找)
+    Value *lookup(const std::string &name) const {
+        for (auto it = layers_.rbegin(); it != layers_.rend(); ++it) {
+            auto iter = it->find(name);
+            if (iter != it->end()) {
+                return iter->second;
+            }
+        }
+        return nullptr; // 未找到
+    }
+
+    // 判断当前是否在全局作用域
+    bool isGlobal() const {
+        return layers_.size() == 1;
+    }
 
 private:
-  void Define(const symbol_t &symbol);
-  void DefineGlobal(const symbol_t &symbol);
-
-private:
-  std::vector<std::unordered_map<std::string, symbol_t>> scopes_;
+    std::vector<SymbolMap> layers_;
 };

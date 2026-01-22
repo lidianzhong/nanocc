@@ -18,8 +18,7 @@ public:
     current_offset_ = args_size;
   }
 
-  void AllocSlot(koopa_raw_value_t value) {
-    size_t size = 4;
+  void AllocSlot(koopa_raw_value_t value, size_t size) {
     offset_[value] = current_offset_;
     current_offset_ += size;
   }

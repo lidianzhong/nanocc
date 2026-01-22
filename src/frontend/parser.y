@@ -53,7 +53,7 @@ using namespace std;
 %type <ast_val> Exp LVal PrimaryExp Number UnaryExp
 %type <ast_val> MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <str_val> BType UnaryOp
-%type <ast_list> ConstDefList VarDefList BlockItemList ConstExpList InitValList FuncRParams
+%type <ast_list> ConstDefList VarDefList BlockItemList ConstInitValList InitValList FuncRParams ArrayIndices ArrayDims
 %type <param_list> FuncFParams
 
 %%
@@ -119,21 +119,29 @@ ConstDefList
   }
   ;
 
-// ConstDef ::= IDENT ["[" ConstExp "]"] "=" ConstInitVal;
+// ConstDef ::= IDENT {"[" ConstExp "]"} "=" ConstInitVal
 ConstDef
   : IDENT '=' ConstInitVal {
     auto ast = new ConstDefAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->array_size = nullptr;
-    ast->init_val = unique_ptr<BaseAST>($3);
+    ast->init = std::unique_ptr<InitVarAST>(dynamic_cast<InitVarAST*>($3));
     $$ = ast;
   }
-  | IDENT '[' ConstExp ']' '=' ConstInitVal {
+  | IDENT ArrayDims '=' ConstInitVal {
     auto ast = new ConstDefAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->array_size = unique_ptr<BaseAST>($3);
-    ast->init_val = unique_ptr<BaseAST>($6);
+    ast->dims = std::move(*static_cast<std::vector<std::unique_ptr<BaseAST>>*>($2));
+    ast->init = std::unique_ptr<InitVarAST>(dynamic_cast<InitVarAST*>($4));
     $$ = ast;
+  }
+
+ArrayDims
+  : /* empty */ {
+    $$ = new std::vector<std::unique_ptr<BaseAST>>();
+  }
+  | ArrayDims '[' ConstExp ']' {
+    $1->push_back(std::unique_ptr<BaseAST>($3));
+    $$ = $1;
   }
   ;
 
@@ -141,27 +149,40 @@ ConstDef
 ConstInitVal
   : ConstExp { 
     auto ast = new InitVarAST();
-    ast->is_list = false;
-    ast->must_be_constant = true;
+    ast->is_const = true;
     ast->exp = unique_ptr<BaseAST>($1);
     $$ = ast;
    }
   | '{' '}' {
     auto ast = new InitVarAST();
-    ast->is_list = true;
-    ast->must_be_constant = true;
+    ast->is_const = true;
     ast->exp = nullptr;
-    ast->inits = std::vector<std::unique_ptr<BaseAST>>();
+    ast->inits = std::vector<std::unique_ptr<InitVarAST>>();
     $$ = ast;
   }
-  | '{' ConstExpList '}' {
+  | '{' ConstInitValList '}' {
     auto ast = new InitVarAST();
-    ast->is_list = true;
-    ast->must_be_constant = true;
+    ast->is_const = true;
     ast->exp = nullptr;
-    ast->inits = std::move(*$2);
+    ast->inits.reserve($2->size());
+    for (auto &ptr : *$2) {
+      ast->inits.push_back(unique_ptr<InitVarAST>(dynamic_cast<InitVarAST*>(ptr.release())));
+    }
     delete $2;
     $$ = ast;
+  }
+  ;
+
+// ConstInitValList ::= ConstInitVal {"," ConstInitValList}
+ConstInitValList
+  : ConstInitVal {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ConstInitValList ',' ConstInitVal {
+    $1->push_back(unique_ptr<BaseAST>($3));
+    $$ = $1;
   }
   ;
 
@@ -187,60 +208,73 @@ VarDefList
   }
   ;
 
-// VarDef ::= IDENT ["[" ConstExp "]"]
-//          | IDENT ["[" ConstExp "]"] "=" InitVal
+// VarDef ::= IDENT {"[" ConstExp "]"}
+//          | IDENT {"[" ConstExp "]"} "=" InitVal
 VarDef
   : IDENT {
     auto ast = new VarDefAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->init_val = nullptr;
+    ast->init = nullptr;
     $$ = ast;
   }
   | IDENT '=' InitVal {
     auto ast = new VarDefAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->init_val = unique_ptr<BaseAST>($3);
+    ast->init = unique_ptr<InitVarAST>(dynamic_cast<InitVarAST*>($3));
     $$ = ast;
   }
-  | IDENT '[' ConstExp ']' {
+  | IDENT ArrayIndices {
     auto ast = new VarDefAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->array_size = unique_ptr<BaseAST>($3);
-    ast->init_val = nullptr;
+    ast->dims = std::move(*static_cast<std::vector<std::unique_ptr<BaseAST>>*>($2));
+    ast->init = nullptr;
     $$ = ast;
   }
-  | IDENT '[' ConstExp ']' '=' InitVal {
+  | IDENT ArrayIndices '=' InitVal {
     auto ast = new VarDefAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->array_size = unique_ptr<BaseAST>($3);
-    ast->init_val = unique_ptr<BaseAST>($6);
+    ast->dims = std::move(*static_cast<std::vector<std::unique_ptr<BaseAST>>*>($2));
+    ast->init = unique_ptr<InitVarAST>(dynamic_cast<InitVarAST*>($4));
     $$ = ast;
   }
   ;
 
-// InitVal ::= Exp | "{" [Exp {"," Exp}] "}";
+// ArrayIndices ::= "[" ConstExp "]" { "[" ConstExp "]" }
+ArrayIndices
+  : '[' ConstExp ']' {
+    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
+    vec->push_back(std::unique_ptr<BaseAST>($2));
+    $$ = vec;
+  }
+  | ArrayIndices '[' ConstExp ']' {
+    $1->push_back(unique_ptr<BaseAST>($3));
+    $$ = $1;
+  }
+  ;
+
+// InitVal ::= Exp | "{" [InitVal {"," InitVal}] "}";
 InitVal
   : Exp { 
     auto ast = new InitVarAST();
-    ast->is_list = false;
-    ast->must_be_constant = false;
+    ast->is_const = false;
     ast->exp = unique_ptr<BaseAST>($1);
     $$ = ast;
    }
   | '{' '}' {
     auto ast = new InitVarAST();
-    ast->is_list = true;
-    ast->must_be_constant = false;
+    ast->is_const = false;
     ast->exp = nullptr;
-    ast->inits = std::vector<std::unique_ptr<BaseAST>>();
+    ast->inits = std::vector<std::unique_ptr<InitVarAST>>();
     $$ = ast;
   }
   | '{' InitValList '}' {
     auto ast = new InitVarAST();
-    ast->is_list = true;
-    ast->must_be_constant = false;
+    ast->is_const = false;
     ast->exp = nullptr;
-    ast->inits = std::move(*$2);;
+    ast->inits.reserve($2->size());
+    for (auto &ptr : *$2) {
+      ast->inits.push_back(unique_ptr<InitVarAST>(dynamic_cast<InitVarAST*>(ptr.release())));
+    }
     delete $2;
     $$ = ast;
   }
@@ -259,12 +293,20 @@ InitValList
   }
   ;
 
-// FuncFParam ::= BType IDENT
+// FuncFParam ::= BType IDENT ["[" "]" {"[" ConstExp "]"}];
 FuncFParam
   : BType IDENT {
     auto ast = new FuncFParamAST();
     ast->btype = *unique_ptr<string>($1);
     ast->ident = *unique_ptr<string>($2);
+    $$ = ast;
+  }
+  | BType IDENT '[' ']' ArrayDims {
+    auto ast = new FuncFParamAST();
+    ast->btype = "*" + *unique_ptr<string>($1);
+    ast->ident = *unique_ptr<string>($2);
+    ast->dims = std::move(*static_cast<std::vector<std::unique_ptr<BaseAST>>*>($5));
+    delete $5;
     $$ = ast;
   }
   ;
@@ -445,17 +487,18 @@ PrimaryExp
   | Number { $$ = $1; }
   ;
 
-// LVal ::= IDENT ["[" Exp "]"];
+// LVal ::= IDENT {"[" Exp "]"}
 LVal
   : IDENT {
     auto ast = new LValAST();
     ast->ident = *unique_ptr<string>($1);
+    ast->indices = std::vector<std::unique_ptr<BaseAST>>();
     $$ = ast;
   }
-  | IDENT '[' Exp ']' {
+  | IDENT ArrayIndices {
     auto ast = new LValAST();
     ast->ident = *unique_ptr<string>($1);
-    ast->index_exp = unique_ptr<BaseAST>($3);
+    ast->indices = std::move(*static_cast<std::vector<std::unique_ptr<BaseAST>>*>($2));
     $$ = ast;
   }
   ;
@@ -642,19 +685,6 @@ Exp
 // ConstExp ::= Exp
 ConstExp
   : Exp { $$ = $1; }
-  ;
-
-// ConstExpList ::= ConstExp {"," ConstExp}
-ConstExpList
-  : ConstExp {
-    auto vec = new std::vector<std::unique_ptr<BaseAST>>();
-    vec->push_back(std::unique_ptr<BaseAST>($1));
-    $$ = vec;
-  }
-  | ConstExpList ',' ConstExp {
-    $1->push_back(unique_ptr<BaseAST>($3));
-    $$ = $1;
-  }
   ;
 
 %%

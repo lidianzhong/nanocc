@@ -9,12 +9,12 @@ public:
   ~ProgramCodeGen() = default;
 
   void Emit(const koopa_raw_program_t &program);
+  static size_t CalcTypeSize(koopa_raw_type_t ty);
 
 private:
   void EmitDataSection(const koopa_raw_slice_t &values);
   void EmitGlobalAlloc(const koopa_raw_value_t &value);
   void EmitInitializer(const koopa_raw_value_t &init);
-  size_t CalcTypeSize(koopa_raw_type_t ty);
 
   void EmitTextSection();
 };
@@ -38,6 +38,10 @@ private:
   size_t GetStackOffset(koopa_raw_value_t val);
 
   void EmitBlockArgs(koopa_raw_basic_block_t bb, koopa_raw_slice_t args);
+
+  void SafeLoad(const std::string &reg, int offset);
+  void SafeStore(const std::string &reg, int offset);
+  void LoadReg(const std::string &reg, koopa_raw_value_t val);
 
   koopa_raw_function_t func_;
   FrameInfo stack_frame_;

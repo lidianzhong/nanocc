@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ir/Value.h"
+
 #include <memory>
 #include <string>
 #include <variant>
@@ -30,6 +32,7 @@ enum class Opcode {
   Load,             // load from memory
   Store,            // store to memory
   GetElemPtr,       // get element pointer
+  GetPtr,           // get pointer
   // Control flow
   Br,  // conditional branch
   Jmp, // unconditional jump
@@ -39,79 +42,69 @@ enum class Opcode {
   FuncDecl // function declaration
 };
 
-enum class ValueKind {
-  Immediate, // immediate value
-  Register,  // register
-  Address,   // address
-};
-
-struct symbol_t;
-struct BasicBlock;
-struct Function;
-
-struct Value {
-  ValueKind kind;
-  std::string reg_or_addr; // reg or addr
-  int32_t imm;             // imm
-
-  bool isImmediate() const { return kind == ValueKind::Immediate; }
-  bool isRegister() const { return kind == ValueKind::Register; }
-  bool isAddress() const { return kind == ValueKind::Address; }
-
-  std::string toString() const;
-
-  static Value Imm(int32_t imm);
-  static Value Reg(std::string reg_or_addr);
-  static Value Addr(std::string reg_or_addr);
-
-  static Value Imm(const symbol_t &symbol);
-  static Value Addr(const symbol_t &symbol);
-};
+class BasicBlock;
+class Function;
 
 struct BranchTarget {
   BasicBlock *target;
-  std::vector<Value> args;
+  std::vector<Value*> args;
 
-  BranchTarget(BasicBlock *bb, std::vector<Value> arguments)
+  BranchTarget(BasicBlock *bb, std::vector<Value*> arguments)
       : target(bb), args(std::move(arguments)) {}
 };
 
-using Operand = std::variant<Value, BasicBlock *, BranchTarget, std::string,
-                             std::vector<Value>, std::vector<std::string>>;
+using Operand = std::variant<Value*, BasicBlock*, BranchTarget, std::string,
+                             std::vector<Value*>, std::vector<std::string>>;
 
-struct Instruction {
+// Instruction 现在继承自 ValueObj，因为它有一个结果（可能是 void）
+class Instruction : public ValueObj {
+public:
   Opcode op;
   std::vector<Operand> args;
 
-  template <typename... Args> Instruction(Opcode op, Args &&...args) : op(op) {
+  // 构造函数：需要 Type 和 Name (用于 ValueObj)
+  // 如果是 Void 指令 (Store, Br)，Type=VoidTy, Name=""
+  template <typename... Args>
+  Instruction(Type *ty, const std::string &name, Opcode op, Args &&...args) 
+      : ValueObj(ty, name), op(op) {
     (this->args.emplace_back(std::forward<Args>(args)), ...);
   }
 };
 
-struct BasicBlock {
+// BasicBlock 作为一个 Value (LabelType)
+class BasicBlock : public Value {
+public:
   Function *func;
-  std::string name;
-  std::vector<std::unique_ptr<Instruction>> insts;
-  std::vector<std::pair<std::string, std::string>> params;
+  std::vector<Instruction*> insts; // 指令列表 (所有权在 Module 或此处?)
+  // 简化起见，这里只存指针，内存管理另说
 
-  explicit BasicBlock(Function *func, std::string name);
+  explicit BasicBlock(Function *func, const std::string &name);
+  
+  // Value 接口
+  std::string toString() const override { return name_; }
+
+  // 旧接口适配
+  void Append(Instruction *inst) { insts.push_back(inst); }
+  
   bool HasTerminator() const;
-  Value AddParam(const std::string &type);
-  void Append(std::unique_ptr<Instruction> inst);
-  static BasicBlock *Create(Function *func, std::string name);
 };
 
-struct Function {
-  std::string name;
-  std::string ret_type;
-  std::vector<std::pair<std::string, std::string>> params; // Name, Type
-  std::vector<std::unique_ptr<BasicBlock>> blocks;
+class Function : public Value {
+public:
+  std::vector<BasicBlock*> blocks;
+  
+  struct Param {
+      std::string name;
+      Type *type;
+  };
+  std::vector<Param> params;
 
-  BasicBlock *exit_bb = nullptr;
-  Value ret_addr;
-  bool has_return = false;
+  Function(const std::string &name, Type *retTy) : Value(retTy, name) {}
 
-  Function(std::string name, std::string ret_type = "",
-           std::vector<std::pair<std::string, std::string>> params = {});
-  BasicBlock *CreateBlock(const std::string &block_name);
+  void AddParam(const std::string &name, Type *ty) {
+      params.push_back({name, ty});
+  }
+
+  BasicBlock *CreateBlock(const std::string &name);
+  std::string toString() const override { return name_; }
 };

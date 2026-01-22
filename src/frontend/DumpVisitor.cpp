@@ -94,14 +94,16 @@ void DumpVisitor::Visit(ConstDefAST &node) {
   print_indent();
   out_file << "ConstDefAST { Ident: " << node.ident << " }" << std::endl;
   IndentGuard _{indent_level};
-  if (node.array_size) {
+  if (!node.dims.empty()) {
     print_indent();
-    out_file << "ArraySize:" << std::endl;
+    out_file << "Dims:" << std::endl;
     IndentGuard _i{indent_level};
-    node.array_size->Accept(*this);
+    for (auto &dim : node.dims) {
+      dim->Accept(*this);
+    }
   }
-  if (node.init_val)
-    node.init_val->Accept(*this);
+  if (node.init)
+    node.init->Accept(*this);
 }
 
 void DumpVisitor::Visit(VarDeclAST &node) {
@@ -118,27 +120,29 @@ void DumpVisitor::Visit(VarDefAST &node) {
   print_indent();
   out_file << "VarDefAST { Ident: " << node.ident << " }" << std::endl;
   IndentGuard _{indent_level};
-  if (node.array_size) {
+  if (!node.dims.empty()) {
     print_indent();
-    out_file << "ArraySize:" << std::endl;
+    out_file << "Dims:" << std::endl;
     IndentGuard _i{indent_level};
-    node.array_size->Accept(*this);
+    for (auto &dim : node.dims) {
+      dim->Accept(*this);
+    }
   }
-  if (node.init_val)
-    node.init_val->Accept(*this);
+  if (node.init)
+    node.init->Accept(*this);
 }
 
 void DumpVisitor::Visit(InitVarAST &node) {
   print_indent();
-  if (node.is_list) {
+  if (node.IsList()) {
     out_file << "InitVarListAST { IsConst: "
-             << (node.must_be_constant ? "true" : "false") << " }" << std::endl;
+             << (node.is_const ? "true" : "false") << " }" << std::endl;
   } else {
-    out_file << "InitVarAST { IsConst: "
-             << (node.must_be_constant ? "true" : "false") << " }" << std::endl;
+    out_file << "InitVarAST { IsConst: " << (node.is_const ? "true" : "false")
+             << " }" << std::endl;
   }
   IndentGuard _{indent_level};
-  if (node.is_list) {
+  if (node.IsList()) {
     for (auto &val : node.inits) {
       if (val)
         val->Accept(*this);
@@ -206,11 +210,13 @@ void DumpVisitor::Visit(LValAST &node) {
   print_indent();
   out_file << "LValAST { Ident: " << node.ident << " }" << std::endl;
   IndentGuard _{indent_level};
-  if (node.index_exp) {
+  if (!node.indices.empty()) {
     print_indent();
-    out_file << "IndexExp:" << std::endl;
+    out_file << "Indices:" << std::endl;
     IndentGuard _i{indent_level};
-    node.index_exp->Accept(*this);
+    for (auto &index : node.indices) {
+      index->Accept(*this);
+    }
   }
 }
 

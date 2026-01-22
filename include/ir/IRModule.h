@@ -25,7 +25,7 @@ public:
   Function *GetFunction(const std::string &func_name) {
     auto it = std::find_if(funcs_.begin(), funcs_.end(),
                            [&](const std::unique_ptr<Function> &f) {
-                             return f->name == "@" + func_name; // TODO
+                             return f->getName() == func_name; // TODO
                            });
 
     return (it != funcs_.end()) ? it->get() : nullptr;

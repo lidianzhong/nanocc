@@ -1,329 +1,182 @@
 #include "ir/IRSerializer.h"
-
-#include <cassert>
+#include "ir/IR.h"
+#include "ir/Type.h"
+#include "ir/Value.h"
 #include <sstream>
+#include <variant>
 
 namespace IRSerializer {
 
-// 从 Operand 中获取 Value 的字符串表示
 static std::string OperandToString(const Operand &op) {
-  if (std::holds_alternative<Value>(op)) {
-    return std::get<Value>(op).toString();
-  }
-  assert(false && "OperandToString: unexpected operand type");
-  return "";
+    if (std::holds_alternative<Value*>(op)) {
+        Value *v = std::get<Value*>(op);
+        if (!v) return "null";
+        return v->toString();
+    } else if (std::holds_alternative<BasicBlock*>(op)) {
+        return "%" + std::get<BasicBlock*>(op)->getName();
+    } else if (std::holds_alternative<std::string>(op)) {
+        return std::get<std::string>(op);
+    } else if (std::holds_alternative<BranchTarget>(op)) {
+        const auto &bt = std::get<BranchTarget>(op);
+        std::string s = "%" + bt.target->getName();
+        if (!bt.args.empty()) {
+            s += "(";
+            for (size_t i = 0; i < bt.args.size(); ++i) {
+                if (i > 0) s += ", ";
+                s += bt.args[i]->toString();
+            }
+            s += ")";
+        }
+        return s;
+    }
+    return "";
 }
 
-// 将 BranchTarget 转换为字符串（包含块参数）
-static std::string BranchTargetToString(const BranchTarget &target) {
-  std::ostringstream oss;
-  oss << "%" << target.target->name;
-  if (!target.args.empty()) {
-    oss << "(";
-    for (size_t i = 0; i < target.args.size(); i++) {
-      if (i > 0)
-        oss << ", ";
-      oss << target.args[i].toString();
+static void SerializeInstruction(const Instruction *inst, std::ostream &os) {
+    if (inst->op == Opcode::GlobalAlloc) {
+        os << "global " << inst->toString() << " = alloc " 
+           << inst->getType()->getPointerElementType()->toString() << ", ";
+        
+        bool has_init = false;
+        if (!inst->args.empty()) {
+            if (std::holds_alternative<Value*>(inst->args[0])) {
+                if (std::get<Value*>(inst->args[0]) != nullptr) {
+                    has_init = true;
+                }
+            } else {
+                has_init = true;
+            }
+        }
+
+        if (has_init)
+            os << OperandToString(inst->args[0]);
+        else
+            os << "zeroinit";
+        os << "\n";
+        return;
     }
-    oss << ")";
-  }
-  return oss.str();
-}
 
-// 将单条指令转换为 IR 文本
-static std::string InstructionToString(const Instruction &inst) {
-  std::ostringstream oss;
-
-  switch (inst.op) {
-  case Opcode::Add:
-    oss << "  " << OperandToString(inst.args[0]) << " = add "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Sub:
-    oss << "  " << OperandToString(inst.args[0]) << " = sub "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Mul:
-    oss << "  " << OperandToString(inst.args[0]) << " = mul "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Div:
-    oss << "  " << OperandToString(inst.args[0]) << " = div "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Mod:
-    oss << "  " << OperandToString(inst.args[0]) << " = mod "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Lt:
-    oss << "  " << OperandToString(inst.args[0]) << " = lt "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Gt:
-    oss << "  " << OperandToString(inst.args[0]) << " = gt "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Le:
-    oss << "  " << OperandToString(inst.args[0]) << " = le "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Ge:
-    oss << "  " << OperandToString(inst.args[0]) << " = ge "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Eq:
-    oss << "  " << OperandToString(inst.args[0]) << " = eq "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Ne:
-    oss << "  " << OperandToString(inst.args[0]) << " = ne "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::And:
-    oss << "  " << OperandToString(inst.args[0]) << " = and "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Or:
-    oss << "  " << OperandToString(inst.args[0]) << " = or "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Alloc:
-    oss << "  " << OperandToString(inst.args[0]) << " = alloc i32";
-    break;
-  case Opcode::GlobalAlloc: {
-    oss << "global " << OperandToString(inst.args[0]) << " = alloc i32, ";
-    const auto &init = std::get<Value>(inst.args[1]);
-    if (init.isImmediate() && init.imm == 0) {
-      oss << "zeroinit";
+    if (!inst->getType()->isVoidTy()) {
+        os << "  " << inst->toString() << " = ";
     } else {
-      oss << OperandToString(inst.args[1]);
-    }
-    break;
-  }
-  case Opcode::AllocArray: {
-    oss << "  " << OperandToString(inst.args[0]) << " = alloc [i32, "
-        << OperandToString(inst.args[1]) << "]";
-    break;
-  }
-  case Opcode::GlobalAllocArray: {
-    oss << "global " << OperandToString(inst.args[0]) << " = alloc [i32, "
-        << OperandToString(inst.args[1]) << "], ";
-    const auto &init_vals = std::get<std::vector<Value>>(inst.args[2]);
-    bool all_zero = true;
-    for (const auto &v : init_vals) {
-      if (!v.isImmediate() || v.imm != 0) {
-        all_zero = false;
-        break;
-      }
-    }
-    if (all_zero) {
-      oss << "zeroinit";
-    } else {
-      oss << "{";
-      for (size_t i = 0; i < init_vals.size(); i++) {
-        if (i > 0)
-          oss << ", ";
-        oss << init_vals[i].toString();
-      }
-      oss << "}";
-    }
-    break;
-  }
-  case Opcode::Load:
-    oss << "  " << OperandToString(inst.args[0]) << " = load "
-        << OperandToString(inst.args[1]);
-    break;
-  case Opcode::Store:
-    oss << "  store " << OperandToString(inst.args[0]) << ", "
-        << OperandToString(inst.args[1]);
-    break;
-  case Opcode::GetElemPtr:
-    oss << "  " << OperandToString(inst.args[0]) << " = getelemptr "
-        << OperandToString(inst.args[1]) << ", "
-        << OperandToString(inst.args[2]);
-    break;
-  case Opcode::Br: {
-    // br cond, then_target, else_target
-    const auto &then_target = std::get<BranchTarget>(inst.args[1]);
-    const auto &else_target = std::get<BranchTarget>(inst.args[2]);
-    oss << "  br " << OperandToString(inst.args[0]) << ", "
-        << BranchTargetToString(then_target) << ", "
-        << BranchTargetToString(else_target);
-    break;
-  }
-  case Opcode::Jmp: {
-    // jump target
-    const auto &target = std::get<BranchTarget>(inst.args[0]);
-    oss << "  jump " << BranchTargetToString(target);
-    break;
-  }
-  case Opcode::Ret:
-    if (inst.args.empty()) {
-      oss << "  ret";
-    } else {
-      oss << "  ret " << OperandToString(inst.args[0]);
-    }
-    break;
-  case Opcode::Call:
-    if (inst.args.size() == 3) {
-      // ret_reg = call func_name, args
-      oss << "  " << OperandToString(inst.args[0]) << " = call "
-          << std::get<std::string>(inst.args[1]) << "(";
-      const auto &arg_values = std::get<std::vector<Value>>(inst.args[2]);
-      for (size_t i = 0; i < arg_values.size(); i++) {
-        if (i > 0)
-          oss << ", ";
-        oss << arg_values[i].toString();
-      }
-      oss << ")";
-    } else {
-      // call func_name, args
-      oss << "  call " << std::get<std::string>(inst.args[0]) << "(";
-      const auto &arg_values = std::get<std::vector<Value>>(inst.args[1]);
-      for (size_t i = 0; i < arg_values.size(); i++) {
-        if (i > 0)
-          oss << ", ";
-        oss << arg_values[i].toString();
-      }
-      oss << ")";
-    }
-    break;
-  case Opcode::FuncDecl: {
-    // decl func_name: ret_type (param_types)
-    oss << "decl " << std::get<std::string>(inst.args[0]) << "(";
-    const auto &param_types = std::get<std::vector<std::string>>(inst.args[2]);
-    for (size_t i = 0; i < param_types.size(); i++) {
-      if (i > 0)
-        oss << ", ";
-      oss << param_types[i];
-      ;
-    }
-    oss << ")";
-    if (!std::get<std::string>(inst.args[1]).empty()) {
-      oss << ": " << std::get<std::string>(inst.args[1]);
-      ;
-    }
-    break;
-  }
-  default:
-    assert(false && "InstructionToString: unknown opcode");
-    break;
-  }
-  return oss.str();
-}
-
-// 将基本块头转换为字符串（包含块参数声明）
-static std::string BlockHeaderToString(const BasicBlock &bb) {
-  std::ostringstream oss;
-  oss << "%" << bb.name;
-  if (!bb.params.empty()) {
-    oss << "(";
-    for (size_t i = 0; i < bb.params.size(); i++) {
-      if (i > 0)
-        oss << ", ";
-      oss << bb.params[i].first << ": " << bb.params[i].second;
-    }
-    oss << ")";
-  }
-  oss << ":";
-  return oss.str();
-}
-
-// 将单个函数转换为 IR 文本
-static std::string FunctionToString(const Function &func) {
-  std::ostringstream oss;
-
-  if (func.blocks.empty()) {
-    // 这是一个函数声明
-    oss << "decl " << func.name << "(";
-    for (size_t i = 0; i < func.params.size(); i++) {
-      if (i > 0)
-        oss << ", ";
-      oss << func.params[i].second;
-    }
-    oss << ")";
-
-    // 只有当返回值不是空且不是 "void" 时，才打印类型
-    if (!func.ret_type.empty() && func.ret_type != "void") {
-      oss << ": " << func.ret_type;
+        os << "  ";
     }
 
-    return oss.str();
-  }
-
-  // 函数头
-  oss << "fun " << func.name << "(";
-  for (size_t i = 0; i < func.params.size(); i++) {
-    if (i > 0)
-      oss << ", ";
-    oss << func.params[i].first << ": " << func.params[i].second;
-  }
-
-  if (!func.ret_type.empty() && func.ret_type != "void") {
-    oss << "): " << func.ret_type << " {\n";
-  } else {
-    oss << ") {\n";
-  }
-
-  // 遍历所有基本块
-  for (const auto &bb : func.blocks) {
-    oss << "\n" << BlockHeaderToString(*bb) << "\n";
-
-    // 遍历基本块中的所有指令
-    for (const auto &inst : bb->insts) {
-      oss << InstructionToString(*inst) << "\n";
+    switch (inst->op) {
+        case Opcode::Alloc:
+             os << "alloc " << inst->getType()->getPointerElementType()->toString();
+             break;
+        case Opcode::Load:
+             os << "load " << OperandToString(inst->args[0]);
+             break;
+        case Opcode::Store:
+             os << "store " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]);
+             break;
+        case Opcode::GetElemPtr:
+             os << "getelemptr " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]);
+             break;
+        case Opcode::GetPtr:
+             os << "getptr " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]);
+             break;
+        case Opcode::Add: os << "add " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Sub: os << "sub " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Mul: os << "mul " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Div: os << "div " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Mod: os << "mod " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Lt: os << "lt " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Gt: os << "gt " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Le: os << "le " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Ge: os << "ge " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Eq: os << "eq " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Ne: os << "ne " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::And: os << "and " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Or: os << "or " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
+        case Opcode::Br:
+             os << "br " << OperandToString(inst->args[0]) << ", " 
+                << OperandToString(inst->args[1]) << ", " << OperandToString(inst->args[2]);
+             break;
+        case Opcode::Jmp:
+             os << "jump " << OperandToString(inst->args[0]);
+             break;
+        case Opcode::Ret:
+             if (inst->args.empty()) os << "ret";
+             else os << "ret " << OperandToString(inst->args[0]);
+             break;
+        case Opcode::Call:
+             os << "call @" << std::get<std::string>(inst->args[0]) << "(";
+             if (inst->args.size() > 1 && std::holds_alternative<std::vector<Value*>>(inst->args[1])) {
+                 const auto& args = std::get<std::vector<Value*>>(inst->args[1]);
+                 for (size_t i = 0; i < args.size(); ++i) {
+                     if (i > 0) os << ", ";
+                     os << args[i]->toString();
+                 }
+             }
+             os << ")";
+             break;
+        default: break;
     }
-  }
-
-  oss << "}\n";
-
-  return oss.str();
+    os << "\n";
 }
 
 std::string ToIR(const IRModule &module) {
-  std::ostringstream oss;
-
-  // 全局变量
-  for (const auto &global_inst : module.globals_) {
-    oss << InstructionToString(*global_inst) << "\n";
-  }
-  if (!module.globals_.empty()) {
+    std::ostringstream oss;
+    for (const auto &inst : module.globals_) {
+        SerializeInstruction(inst.get(), oss);
+    }
     oss << "\n";
-  }
 
-  for (const auto &func : module.GetFunctions()) {
-    oss << FunctionToString(*func);
-    oss << "\n";
-  }
-
-  return oss.str();
+    for (const auto &func : module.GetFunctions()) {
+        if (func->blocks.empty()) {
+            // Declaration
+            oss << "decl " << "@" + func->getName() << "(";
+            for (size_t i = 0; i < func->params.size(); ++i) {
+                 if (i > 0) oss << ", ";
+                 oss << func->params[i].type->toString();
+            }
+            oss << ")";
+            if (!func->getType()->isVoidTy()) {
+                 oss << ": " << func->getType()->toString();
+            }
+            oss << "\n";
+        } else {
+            // Definition
+            oss << "fun " << "@" + func->getName() << "(";
+            for (size_t i = 0; i < func->params.size(); ++i) {
+                 if (i > 0) oss << ", ";
+                 oss << func->params[i].name << ": " << func->params[i].type->toString();
+            }
+            oss << ")";
+            
+            if (!func->getType()->isVoidTy()) {
+                 oss << ": " << func->getType()->toString();
+            }
+            
+            oss << " {\n";
+            for (const auto &bb : func->blocks) {
+                 oss << "%" << bb->getName() << ":\n";
+                 for (const auto &inst : bb->insts) {
+                     SerializeInstruction(inst, oss);
+                 }
+                 oss << "\n";
+            }
+            oss << "}\n\n";
+        }
+    }
+    return oss.str();
 }
 
 koopa_raw_program_t ToProgram(const std::string &ir) {
-  koopa_program_t program = nullptr;
-  koopa_error_code_t ret = koopa_parse_from_string(ir.c_str(), &program);
-  assert(ret == KOOPA_EC_SUCCESS);
-
-  auto builder = koopa_new_raw_program_builder();
-  return koopa_build_raw_program(builder, program);
+    koopa_program_t program;
+    koopa_error_code_t ret = koopa_parse_from_string(ir.c_str(), &program);
+    assert(ret == KOOPA_EC_SUCCESS);
+    koopa_raw_program_builder_t builder = koopa_new_raw_program_builder();
+    koopa_raw_program_t raw = koopa_build_raw_program(builder, program);
+    koopa_delete_program(program);
+    return raw;
 }
 
 koopa_raw_program_t ToProgram(const IRModule &module) {
-  std::string ir = ToIR(module);
-  return ToProgram(ir);
+    return ToProgram(ToIR(module));
 }
 
 } // namespace IRSerializer

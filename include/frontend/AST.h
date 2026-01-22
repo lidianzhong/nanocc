@@ -30,6 +30,7 @@ class FuncFParamAST : public BaseAST {
 public:
   std::string btype; // "int" or "*int"
   std::string ident;
+  std::vector<std::unique_ptr<BaseAST>> dims; // 可能为空
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -67,8 +68,9 @@ public:
 class ConstDefAST : public BaseAST {
 public:
   std::string ident;
-  std::unique_ptr<BaseAST> array_size; // 可能为空
-  std::unique_ptr<BaseAST> init_val;
+  std::vector<std::unique_ptr<BaseAST>> dims; // 可能为空
+  std::unique_ptr<InitVarAST> init;           // 可能为空
+  bool IsArray() const { return !dims.empty(); }
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -84,19 +86,20 @@ public:
 class VarDefAST : public BaseAST {
 public:
   std::string ident;
-  std::unique_ptr<BaseAST> array_size; // 可能为空
-  std::unique_ptr<BaseAST> init_val;   // 可能为空
+  std::vector<std::unique_ptr<BaseAST>> dims; // 可能为空
+  std::unique_ptr<InitVarAST> init;           // 可能为空
+  bool IsArray() const { return !dims.empty(); }
   void Accept(ASTVisitor &visitor) override;
 };
 
 /// 变量初始化值
 class InitVarAST : public BaseAST {
 public:
-  // 可以是单个 Exp 或 InitVal 列表
-  bool is_list;
-  bool must_be_constant = false; // Add this field
-  std::unique_ptr<BaseAST> exp;  // 当 is_list 为 false 时使用
-  std::vector<std::unique_ptr<BaseAST>> inits; // 当 is_list 为 true 时使用
+  // exp or init list
+  bool is_const = false;
+  std::unique_ptr<BaseAST> exp;                   // 可能为空
+  std::vector<std::unique_ptr<InitVarAST>> inits; // 可能为空
+  bool IsList() const { return !inits.empty(); }
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -159,7 +162,7 @@ public:
 class LValAST : public BaseAST {
 public:
   std::string ident;
-  std::unique_ptr<BaseAST> index_exp; // 可能为空
+  std::vector<std::unique_ptr<BaseAST>> indices; // 可能为空
   void Accept(ASTVisitor &visitor) override;
 };
 

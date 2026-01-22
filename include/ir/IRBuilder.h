@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <string>
 
 class IRBuilder {
 public:
@@ -16,52 +17,47 @@ public:
 
   BasicBlock *CreateBlock(const std::string &name);
   void SetInsertPoint(BasicBlock *bb);
+  
+  // Helper to append instruction to current block
+  void Insert(Instruction *inst);
 
-  template <typename... T> void Emit(Opcode op, T &&...args) {
-    cur_bb_->Append(
-        std::make_unique<Instruction>(op, std::forward<T>(args)...));
-  }
+  Value *CreateAlloca(Type *type, const std::string &var_name = "");
+  Value *CreateGlobalAlloc(const std::string &var_name, Type *type, Value *init_val);
+  
+  // CreateGetElemPtr: base_addr must be a pointer type
+  Value *CreateGetElemPtr(Value *base_addr, Value *index);
+  
+  // CreateGetPtr: base_ptr must be a pointer type
+  Value *CreateGetPtr(Value *base_ptr, Value *index);
+  
+  Value *CreateLoad(Value *addr);
+  void CreateStore(Value *value, Value *addr);
 
-  Value CreateAlloca(const std::string &type, const std::string &var_name = "");
-  Value CreateGlobalAlloc(const std::string &type, const std::string &var_name,
-                          Value init_val);
-  Value CreateArrayAlloca(const std::string &type, const std::string &var_name,
-                          int size);
-  Value CreateGlobalArrayAlloca(const std::string &type,
-                                const std::string &var_name, int size,
-                                const std::vector<Value> &init_vals);
-  Value CreateGetElemPtr(const Value &base_addr, const Value &index);
-  Value CreateLoad(const Value &addr);
-  void CreateStore(const Value &value, const Value &addr);
-
-  void CreateBranch(const Value &cond, BasicBlock *then_bb,
-                    const std::vector<Value> &then_args, BasicBlock *else_bb,
-                    const std::vector<Value> &else_args);
-  void CreateJump(BasicBlock *target_bb, const std::vector<Value> &args = {});
-  void CreateReturn(const Value &value);
+  void CreateBranch(Value *cond, BasicBlock *then_bb, BasicBlock *else_bb);
+  void CreateJump(BasicBlock *target_bb);
+  
+  void CreateReturn(Value *value);
   void CreateReturn();
 
-  Value CreateUnaryOp(const std::string &op, const Value &value);
-  Value CreateBinaryOp(const std::string &op, const Value &lhs,
-                       const Value &rhs);
+  Value *CreateUnaryOp(Opcode op, Value *value);
+  Value *CreateBinaryOp(Opcode op, Value *lhs, Value *rhs);
 
-  Value CreateCall(const std::string &func_name, const std::vector<Value> &args,
-                   bool has_return);
-
-  void DeclareFunction(const std::string &name, const std::string &ret_type,
-                       const std::vector<std::string> &param_types);
+  Value *CreateCall(Function *func, const std::vector<Value*> &args);
+  Value *CreateCall(const std::string &func_name, const std::vector<Value*> &args, Type *ret_type);
 
 public:
   IRModule *module_ = nullptr;
   Function *cur_func_ = nullptr;
   BasicBlock *cur_bb_ = nullptr;
 
-private:
-  Value NewTempReg_();
-  Value NewTempAddr_(const std::string &addr_name = "");
-  std::string NewTempLabel_(const std::string &prefix = "");
+  // Helpers for temporary naming
+  std::string NewTempRegName();
+  std::string NewTempAddrName(const std::string &name);
+  std::string NewTempLabelName(const std::string &prefix);
 
+private:
   int temp_reg_id_ = 0;
   std::unordered_map<std::string, int> temp_addr_counters_;
   std::unordered_map<std::string, int> temp_label_counters_;
 };
+
