@@ -1,55 +1,74 @@
 #pragma once
 
 #include "ir/Type.h"
-#include <string>
-#include <iostream>
+#include "ir/Use.h"
+
+namespace ldz {
+
+class Type;
+class Value;
+class Use;
+class User;
 
 class Value {
+  friend class Use;
+
 public:
-    explicit Value(Type *ty, const std::string &name = "") 
-        : type_(ty), name_(name) {}
-    virtual ~Value() = default;
-
-    Type *getType() const { return type_; }
-    
-    const std::string &getName() const { return name_; }
-    void setName(const std::string &name) { name_ = name; }
-
-    // 返回 Value 的字符串表示 (例如 "10" 或 "%0")
-    virtual std::string toString() const = 0; 
+  enum ValueID {
+    ArgumentVal,
+    BasicBlockVal,
+    ConstantIntVal,
+    ConstantArrayVal,
+    ConstantZeroVal,
+    FunctionVal,
+    InstructionVal,
+    GlobalVariableVal
+  };
 
 protected:
-    Type *type_;
-    std::string name_;
-};
+  ValueID vID_;
+  Type *vTy_;
+  Use *useList_ = nullptr;
 
-// ConstantInt: 编译期整数常量
-class ConstantInt : public Value {
+protected:
+  Value(ValueID id, Type *ty) : vID_(id), vTy_(ty) {}
+
 public:
-    explicit ConstantInt(int val) 
-        : Value(Type::getInt32Ty(), ""), value_(val) {}
+  virtual ~Value() = default;
+  Value(const Value &) = delete;
 
-    int getValue() const { return value_; }
-    
-    std::string toString() const override {
-        return std::to_string(value_);
-    }
+  //===--------------------------------------------------------------------===//
+  // Accessors.
+  //
+  ValueID getValueID() const { return vID_; }
+  Type *getType() const { return vTy_; }
 
-    static ConstantInt *get(int val) {
-        return new ConstantInt(val);
-    }
+  //===--------------------------------------------------------------------===//
+  // Methods for managing uses.
+  //
+  bool use_empty() const { return useList_ == nullptr; }
 
-private:
-    int value_;
+  using use_iterator = Use *;
+  use_iterator use_begin() { return useList_; }
+  use_iterator use_end() { return nullptr; }
 };
 
-// ValueObj: 运行时变量 (指令结果，alloc地址等)
-// 它们的 toString() 通常直接返回名字
-class ValueObj : public Value {
-public:
-    ValueObj(Type *ty, const std::string &name) : Value(ty, name) {}
-    
-    std::string toString() const override {
-        return name_;
-    }
-};
+inline void Use::set(Value *V) {
+  if (val_)
+    removeFromList();
+  val_ = V;
+  if (V)
+    addToList(&V->useList_);
+}
+
+inline Value *Use::operator=(Value *RHS) {
+  set(RHS);
+  return RHS;
+}
+
+inline const Use &Use::operator=(const Use &RHS) {
+  set(RHS.val_);
+  return *this;
+}
+
+} // namespace ldz

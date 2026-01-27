@@ -1,8 +1,9 @@
+#include "IR/IRGenVisitor.h"
+#include "IR/IRSerializer.h"
+#include "IR/Module.h"
 #include "backend/CodeGen.h"
 #include "frontend/AST.h"
 #include "frontend/DumpVisitor.h"
-#include "ir/IRGenVisitor.h"
-#include "ir/IRSerializer.h"
 
 #include <cassert>
 #include <cstdio>
@@ -10,6 +11,7 @@
 #include <string>
 
 using namespace std;
+using namespace ldz;
 
 // 声明 lexer 的输入, 以及 parser 函数
 // 为什么不引用 sysy.tab.hpp 呢? 因为首先里面没有 yyin 的定义
@@ -46,7 +48,8 @@ int main(int argc, const char *argv[]) {
   ast->Accept(dumper);
 
   // AST -> Koopa IR
-  IRGenVisitor irgen;
+  Module module;
+  IRGenVisitor irgen(module);
   ast->Accept(irgen);
 
   // Code generation
@@ -54,14 +57,14 @@ int main(int argc, const char *argv[]) {
     // 生成 Koopa IR 文本
     FILE *out = fopen(output, "w");
     assert(out);
-    std::string ir = IRSerializer::ToIR(irgen.GetModule());
+    std::string ir = IRSerializer::ToIR(module);
     fprintf(out, "%s", ir.c_str());
     fclose(out);
   } else if (mode == "-riscv") {
     // 生成 RISC-V 汇编
     freopen(output, "w", stdout);
     ProgramCodeGen codegen;
-    codegen.Emit(IRSerializer::ToProgram(irgen.GetModule()));
+    codegen.Emit(IRSerializer::ToProgram(module));
     fclose(stdout);
   }
 

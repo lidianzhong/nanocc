@@ -2,20 +2,24 @@
 
 #include "frontend/AST.h"
 #include "frontend/ASTVisitor.h"
-#include "frontend/SymbolTable.h"
-#include "ir/IR.h"
-#include "ir/IRBuilder.h"
-#include "ir/IRModule.h"
-
-#include <memory>
+#include <unordered_set>
 #include <vector>
+
+namespace ldz {
+
+class BaseAST;
+class BasicBlock;
+class Constant;
+class GlobalVariable;
+class Module;
+class IRBuilder;
+class Type;
+class ValueSymbolTable;
+class Value;
 
 class IRGenVisitor : public ASTVisitor {
 public:
-  explicit IRGenVisitor();
-
-  // 获取 IR 模块
-  const IRModule &GetModule() const { return *module_; }
+  explicit IRGenVisitor(Module &module);
 
   void Visit(CompUnitAST &node) override;
   void Visit(FuncFParamAST &node) override;
@@ -33,54 +37,87 @@ public:
   void Visit(BreakStmtAST &node) override;
   void Visit(ContinueStmtAST &node) override;
   void Visit(ReturnStmtAST &node) override;
+
+private:
+  [[deprecated("FORBIDDEN: Visit(LValAST) is not allowed in IRGenVisitor")]]
   void Visit(LValAST &node) override;
+
+  [[deprecated("FORBIDDEN: Visit(LValAST) is not allowed in IRGenVisitor")]]
   void Visit(NumberAST &node) override;
+
+  [[deprecated("FORBIDDEN: Visit(LValAST) is not allowed in IRGenVisitor")]]
   void Visit(UnaryExpAST &node) override;
+
+  [[deprecated("FORBIDDEN: Visit(LValAST) is not allowed in IRGenVisitor")]]
   void Visit(BinaryExpAST &node) override;
+
+  [[deprecated("FORBIDDEN: Visit(LValAST) is not allowed in IRGenVisitor")]]
   void Visit(FuncCallAST &node) override;
 
 private:
-  std::unique_ptr<IRModule> module_;
-  std::unique_ptr<IRBuilder> builder_;
-  std::unique_ptr<SymbolTable> symtab_;
+  /// @todo Currently, IRGenVisitor holds its lifecycle.
+  /// whether use unique_ptr and consider ownership
+  Module &module_;
 
-  // 循环相关 targets (BasicBlock*)
-  std::vector<BasicBlock *> break_targets_;
-  std::vector<BasicBlock *> continue_targets_;
+  /// @todo Currently, IRGenVisitor holds its lifecycle.
+  /// whether use unique_ptr and consider ownership
+  IRBuilder *builder_;
 
-  void VisitCompUnit_(const CompUnitAST *ast);
-  void VisitFuncFParam_(const FuncFParamAST *ast);
-  void VisitFuncDef_(const FuncDefAST *ast);
-  void VisitBlock_(const BlockAST *ast);
-  void VisitConstDecl_(const ConstDeclAST *ast);
-  void VisitConstDef_(const ConstDefAST *ast);
-  void VisitVarDecl_(const VarDeclAST *ast);
-  void VisitVarDef_(const VarDefAST *ast);
-  void VisitInitVar_(const InitVarAST *ast);
-  void VisitAssignStmt_(const AssignStmtAST *ast);
-  void VisitExpStmt_(const ExpStmtAST *ast);
-  void VisitIfStmt_(const IfStmtAST *ast);
-  void VisitWhileStmt_(const WhileStmtAST *ast);
-  void VisitBreakStmt_(const BreakStmtAST *ast);
-  void VisitContinueStmt_(const ContinueStmtAST *ast);
-  void VisitReturnStmt_(const ReturnStmtAST *ast);
+  /// @todo Currently, IRGenVisitor holds its lifecycle.
+  /// whether use unique_ptr and consider ownership
+  ValueSymbolTable *nameValues_;
 
-  // Return Type is now Value*
-  Value *Eval(BaseAST *ast);
-  Value *EvalLVal(LValAST *ast);
-  // EvalNumber returns ConstantInt*
-  Value *EvalNumber(NumberAST *ast);
-  Value *EvalUnaryExp(UnaryExpAST *ast);
-  Value *EvalBinaryExp(BinaryExpAST *ast);
-  Value *EvalFuncCall(FuncCallAST *ast);
+private:
+  /// Loop related targets
+  /// @todo Consider not using member variables to hold these states
+  std::vector<BasicBlock *> breakTargets_;
 
-  Value *EvalLogicalAnd(BinaryExpAST *ast);
-  Value *EvalLogicalOr(BinaryExpAST *ast);
+  /// @todo Consider not using member variables to hold these states
+  std::vector<BasicBlock *> continueTargets_;
 
-  int EvaluateConstExpr(BaseAST *ast);
+  // Track constant global variables for folding
+  std::unordered_set<GlobalVariable *> constGlobals_;
 
-  // Helper for initializing local arrays
-  void InitializeLocalArray(const InitVarAST *init, Value *baseAddr, Type *type);
-  // Helper for initializing global arrays
-  Value *GetGlobalArrayInit(const InitVarAST *init, Type *type);
+private:
+  void visitCompUnit_(const CompUnitAST *ast);
+  void visitFuncDef_(const FuncDefAST *ast);
+  void visitBlock_(const BlockAST *ast);
+  void visitConstDecl_(const ConstDeclAST *ast);
+  void visitConstDef_(const ConstDefAST *ast);
+  void visitVarDecl_(const VarDeclAST *ast);
+  void visitVarDef_(const VarDefAST *ast);
+  void visitInitVar_(const InitVarAST *ast);
+  void visitAssignStmt_(const AssignStmtAST *ast);
+  void visitExpStmt_(const ExpStmtAST *ast);
+  void visitIfStmt_(const IfStmtAST *ast);
+  void visitWhileStmt_(const WhileStmtAST *ast);
+  void visitBreakStmt_(const BreakStmtAST *ast);
+  void visitContinueStmt_(const ContinueStmtAST *ast);
+  void visitReturnStmt_(const ReturnStmtAST *ast);
+
+  Value *evalRVal(BaseAST *ast);
+  Value *evalLVal(LValAST *ast);
+  Value *evalNumber(NumberAST *ast);
+  Value *evalUnaryExp(UnaryExpAST *ast);
+  Value *evalBinaryExp(BinaryExpAST *ast);
+  Value *evalFuncCall(FuncCallAST *ast);
+  Value *evalLogicalAnd(BinaryExpAST *ast, Value *lhsVal = nullptr);
+  Value *evalLogicalOr(BinaryExpAST *ast, Value *lhsVal = nullptr);
+
+  /// Register library functions into the module and symbol table
+  void registerLibFunctions();
+
+  /// Helper for flatten const expr evaluation
+  int evalConstExpr(const BaseAST *ast);
+
+  /// Helper for initializing global arrays
+  Constant *initializeGlobalArray(const InitVarAST *init, Type *ty);
+
+  /// Helper for initializing local arrays
+  void initializeLocalArray(const InitVarAST *init, Value *baseAddr,
+                            Type *type);
+
+  Constant *evalConstant(const InitVarAST *init, Type *ty);
 };
+
+} // namespace ldz

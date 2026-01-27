@@ -135,21 +135,19 @@ void DumpVisitor::Visit(VarDefAST &node) {
 void DumpVisitor::Visit(InitVarAST &node) {
   print_indent();
   if (node.IsList()) {
-    out_file << "InitVarListAST { IsConst: "
-             << (node.is_const ? "true" : "false") << " }" << std::endl;
+    out_file << "InitVarListAST" << std::endl;
   } else {
-    out_file << "InitVarAST { IsConst: " << (node.is_const ? "true" : "false")
-             << " }" << std::endl;
+    out_file << "InitVarExprAST" << std::endl;
   }
   IndentGuard _{indent_level};
   if (node.IsList()) {
-    for (auto &val : node.inits) {
+    for (auto &val : node.initList) {
       if (val)
         val->Accept(*this);
     }
   } else {
-    if (node.exp)
-      node.exp->Accept(*this);
+    if (node.initExpr)
+      node.initExpr->Accept(*this);
   }
 }
 

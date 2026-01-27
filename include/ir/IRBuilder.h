@@ -1,63 +1,81 @@
 #pragma once
 
-#include "ir/IR.h"
-#include "ir/IRModule.h"
-
+#include "ir/BasicBlock.h"
+#include "ir/Instruction.h"
+#include "ir/Module.h"
+#include "ir/Value.h"
 #include <memory>
-#include <unordered_map>
-#include <string>
+#include <utility>
+
+namespace ldz {
 
 class IRBuilder {
+private:
+  Module *module_;
+  BasicBlock *BB_;
+
 public:
-  IRBuilder(IRModule *module) : module_(module) {}
+  IRBuilder(Module *module) : module_(module) {}
   ~IRBuilder() = default;
 
-  void SetCurrentFunction(Function *func);
-  void EndFunction();
+  void setInsertPoint(BasicBlock *BB) { BB_ = BB; }
+  BasicBlock *getInsertBlock() const { return BB_; }
 
-  BasicBlock *CreateBlock(const std::string &name);
-  void SetInsertPoint(BasicBlock *bb);
-  
-  // Helper to append instruction to current block
-  void Insert(Instruction *inst);
+  /// Insert instruction into current basic block
+  Instruction *insert(std::unique_ptr<Instruction> inst) {
+    if (BB_)
+      BB_->getInstList().push_back(std::move(inst));
+    return BB_->getInstList().back().get();
+  }
 
-  Value *CreateAlloca(Type *type, const std::string &var_name = "");
-  Value *CreateGlobalAlloc(const std::string &var_name, Type *type, Value *init_val);
-  
-  // CreateGetElemPtr: base_addr must be a pointer type
-  Value *CreateGetElemPtr(Value *base_addr, Value *index);
-  
-  // CreateGetPtr: base_ptr must be a pointer type
-  Value *CreateGetPtr(Value *base_ptr, Value *index);
-  
-  Value *CreateLoad(Value *addr);
-  void CreateStore(Value *value, Value *addr);
+  //===--------------------------------------------------------------------===//
+  // Create instructions for Arithmetic & Logical Operations
+  //
 
-  void CreateBranch(Value *cond, BasicBlock *then_bb, BasicBlock *else_bb);
-  void CreateJump(BasicBlock *target_bb);
-  
-  void CreateReturn(Value *value);
-  void CreateReturn();
+  /// Create unary operation instruction
+  /// @deprecated use `createBinaryOp` with constant 0 instead
+  Instruction *createUnaryOp(Instruction::Opcode op, Value *value);
 
-  Value *CreateUnaryOp(Opcode op, Value *value);
-  Value *CreateBinaryOp(Opcode op, Value *lhs, Value *rhs);
+  /// Create binary operation instruction
+  Value *createBinaryOp(Instruction::Opcode op, Value *lhs, Value *rhs);
 
-  Value *CreateCall(Function *func, const std::vector<Value*> &args);
-  Value *CreateCall(const std::string &func_name, const std::vector<Value*> &args, Type *ret_type);
+  //===--------------------------------------------------------------------===//
+  // Create instructions for Memory Operations
+  //
 
-public:
-  IRModule *module_ = nullptr;
-  Function *cur_func_ = nullptr;
-  BasicBlock *cur_bb_ = nullptr;
+  /// Allocate a local variable
+  /// @todo Need consider array allocation and global variable allocation
+  Instruction *createAlloca(Type *type, const std::string &var_name = "");
 
-  // Helpers for temporary naming
-  std::string NewTempRegName();
-  std::string NewTempAddrName(const std::string &name);
-  std::string NewTempLabelName(const std::string &prefix);
+  /// load value from memory
+  Instruction *createLoad(Value *ptr);
 
-private:
-  int temp_reg_id_ = 0;
-  std::unordered_map<std::string, int> temp_addr_counters_;
-  std::unordered_map<std::string, int> temp_label_counters_;
+  /// store value to memory
+  Instruction *createStore(Value *value, Value *ptr);
+
+  Instruction *createGetPtr(Value *base_ptr, Value *index);
+
+  Instruction *createGetElemPtr(Value *base_ptr, Value *index);
+
+  //===--------------------------------------------------------------------===//
+  // Create instructions for Control Flow
+  //
+
+  /// Create conditional branch instruction
+  Instruction *createCondBr(Value *cond, BasicBlock *true_bb,
+                            BasicBlock *false_bb);
+
+  /// Create unconditional jump instruction
+  Instruction *createJump(BasicBlock *target_bb);
+
+  /// Create return instruction with value
+  Instruction *createRet(Value *value);
+
+  /// Create return instruction without value
+  Instruction *createRetVoid();
+
+  /// Create function call instruction
+  Instruction *createCall(Value *func, std::vector<Value *> args);
 };
 
+} // namespace ldz

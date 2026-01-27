@@ -1,182 +1,282 @@
 #include "ir/IRSerializer.h"
-#include "ir/IR.h"
+#include "ir/BasicBlock.h"
+#include "ir/Constant.h"
+#include "ir/Function.h"
+#include "ir/GlobalVariable.h"
+#include "ir/Instruction.h"
+#include "ir/Module.h"
 #include "ir/Type.h"
 #include "ir/Value.h"
-#include <sstream>
-#include <variant>
 
+#include <cassert>
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace ldz {
 namespace IRSerializer {
 
-static std::string OperandToString(const Operand &op) {
-    if (std::holds_alternative<Value*>(op)) {
-        Value *v = std::get<Value*>(op);
-        if (!v) return "null";
-        return v->toString();
-    } else if (std::holds_alternative<BasicBlock*>(op)) {
-        return "%" + std::get<BasicBlock*>(op)->getName();
-    } else if (std::holds_alternative<std::string>(op)) {
-        return std::get<std::string>(op);
-    } else if (std::holds_alternative<BranchTarget>(op)) {
-        const auto &bt = std::get<BranchTarget>(op);
-        std::string s = "%" + bt.target->getName();
-        if (!bt.args.empty()) {
-            s += "(";
-            for (size_t i = 0; i < bt.args.size(); ++i) {
-                if (i > 0) s += ", ";
-                s += bt.args[i]->toString();
-            }
-            s += ")";
-        }
-        return s;
+class SlotTracker {
+  std::map<const Value *, int> valMap_;
+  int nextID_ = 0;
+
+public:
+  void reset() {
+    valMap_.clear();
+    nextID_ = 0;
+  }
+
+  int getID(const Value *v) {
+    if (valMap_.find(v) == valMap_.end()) {
+      valMap_[v] = nextID_++;
     }
-    return "";
+    return valMap_[v];
+  }
+
+  void assignIDs(const Function *F) {
+    reset();
+    for (auto arg : F->getArgs()) {
+      getID(arg);
+    }
+    for (auto bb : F->getBasicBlockList()) {
+      if (bb->getName().empty()) {
+        getID(bb);
+      }
+      for (const auto &inst : bb->getInstList()) {
+        if (!inst->getType()->isVoidTy()) {
+          getID(inst.get());
+        }
+      }
+    }
+  }
+};
+
+static SlotTracker tracker;
+
+static std::string getValName(const Value *v) {
+  if (auto *c = dynamic_cast<const ConstantInt *>(v)) {
+    return std::to_string(c->getValue());
+  }
+  if (auto *func = dynamic_cast<const Function *>(v)) {
+    return "@" + func->getName();
+  }
+  if (auto *gv = dynamic_cast<const GlobalVariable *>(v)) {
+    return "@" + gv->getName();
+  }
+  if (auto *bb = dynamic_cast<const BasicBlock *>(v)) {
+    if (!bb->getName().empty())
+      return "%" + bb->getName();
+    return "%" + std::to_string(tracker.getID(bb));
+  }
+  if (auto arg = dynamic_cast<const Argument *>(v)) {
+    if (!arg->getName().empty())
+      return "%" + arg->getName();
+  }
+  return "%" + std::to_string(tracker.getID(v));
+}
+
+static void SerializeConstant(const Constant *c, std::ostream &os) {
+  if (auto *ci = dynamic_cast<const ConstantInt *>(c)) {
+    os << ci->getValue();
+  } else if (dynamic_cast<const ConstantZero *>(c)) {
+    os << "zeroinit";
+  } else if (auto *ca = dynamic_cast<const ConstantArray *>(c)) {
+    os << "{";
+    for (unsigned i = 0; i < ca->getNumOperands(); ++i) {
+      if (i > 0)
+        os << ", ";
+      SerializeConstant(dynamic_cast<const Constant *>(ca->getOperand(i)), os);
+    }
+    os << "}";
+  } else {
+    os << "zeroinit";
+  }
 }
 
 static void SerializeInstruction(const Instruction *inst, std::ostream &os) {
-    if (inst->op == Opcode::GlobalAlloc) {
-        os << "global " << inst->toString() << " = alloc " 
-           << inst->getType()->getPointerElementType()->toString() << ", ";
-        
-        bool has_init = false;
-        if (!inst->args.empty()) {
-            if (std::holds_alternative<Value*>(inst->args[0])) {
-                if (std::get<Value*>(inst->args[0]) != nullptr) {
-                    has_init = true;
-                }
-            } else {
-                has_init = true;
-            }
-        }
+  if (!inst->getType()->isVoidTy()) {
+    os << "  " << getValName(inst) << " = ";
+  } else {
+    os << "  ";
+  }
 
-        if (has_init)
-            os << OperandToString(inst->args[0]);
-        else
-            os << "zeroinit";
-        os << "\n";
-        return;
+  switch (inst->getOpcode()) {
+  case Instruction::Opcode::Alloc:
+  case Instruction::Opcode::AllocArray:
+    if (auto *ptrTy = dynamic_cast<PointerType *>(inst->getType())) {
+      os << "alloc " << ptrTy->getElementType()->toString();
     }
-
-    if (!inst->getType()->isVoidTy()) {
-        os << "  " << inst->toString() << " = ";
-    } else {
-        os << "  ";
+    break;
+  case Instruction::Opcode::Load:
+    os << "load " << getValName(inst->getOperand(0));
+    break;
+  case Instruction::Opcode::Store:
+    os << "store " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::GetElemPtr:
+    os << "getelemptr " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::GetPtr:
+    os << "getptr " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Add:
+    os << "add " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Sub:
+    os << "sub " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Mul:
+    os << "mul " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Div:
+    os << "div " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Mod:
+    os << "mod " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Lt:
+    os << "lt " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Gt:
+    os << "gt " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Le:
+    os << "le " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Ge:
+    os << "ge " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Eq:
+    os << "eq " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Ne:
+    os << "ne " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::And:
+    os << "and " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Or:
+    os << "or " << getValName(inst->getOperand(0)) << ", "
+       << getValName(inst->getOperand(1));
+    break;
+  case Instruction::Opcode::Br:
+    if (inst->getNumOperands() == 3) {
+      os << "br " << getValName(inst->getOperand(0)) << ", "
+         << getValName(inst->getOperand(1)) << ", "
+         << getValName(inst->getOperand(2));
     }
-
-    switch (inst->op) {
-        case Opcode::Alloc:
-             os << "alloc " << inst->getType()->getPointerElementType()->toString();
-             break;
-        case Opcode::Load:
-             os << "load " << OperandToString(inst->args[0]);
-             break;
-        case Opcode::Store:
-             os << "store " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]);
-             break;
-        case Opcode::GetElemPtr:
-             os << "getelemptr " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]);
-             break;
-        case Opcode::GetPtr:
-             os << "getptr " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]);
-             break;
-        case Opcode::Add: os << "add " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Sub: os << "sub " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Mul: os << "mul " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Div: os << "div " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Mod: os << "mod " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Lt: os << "lt " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Gt: os << "gt " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Le: os << "le " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Ge: os << "ge " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Eq: os << "eq " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Ne: os << "ne " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::And: os << "and " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Or: os << "or " << OperandToString(inst->args[0]) << ", " << OperandToString(inst->args[1]); break;
-        case Opcode::Br:
-             os << "br " << OperandToString(inst->args[0]) << ", " 
-                << OperandToString(inst->args[1]) << ", " << OperandToString(inst->args[2]);
-             break;
-        case Opcode::Jmp:
-             os << "jump " << OperandToString(inst->args[0]);
-             break;
-        case Opcode::Ret:
-             if (inst->args.empty()) os << "ret";
-             else os << "ret " << OperandToString(inst->args[0]);
-             break;
-        case Opcode::Call:
-             os << "call @" << std::get<std::string>(inst->args[0]) << "(";
-             if (inst->args.size() > 1 && std::holds_alternative<std::vector<Value*>>(inst->args[1])) {
-                 const auto& args = std::get<std::vector<Value*>>(inst->args[1]);
-                 for (size_t i = 0; i < args.size(); ++i) {
-                     if (i > 0) os << ", ";
-                     os << args[i]->toString();
-                 }
-             }
-             os << ")";
-             break;
-        default: break;
+    break;
+  case Instruction::Opcode::Jmp:
+    os << "jump " << getValName(inst->getOperand(0));
+    break;
+  case Instruction::Opcode::Call:
+    os << "call " << getValName(inst->getOperand(0)) << "(";
+    for (unsigned i = 1; i < inst->getNumOperands(); ++i) {
+      if (i > 1)
+        os << ", ";
+      os << getValName(inst->getOperand(i));
     }
-    os << "\n";
+    os << ")";
+    break;
+  case Instruction::Opcode::Ret:
+    if (inst->getNumOperands() > 0)
+      os << "ret " << getValName(inst->getOperand(0));
+    else
+      os << "ret";
+    break;
+  default:
+    break;
+  }
+  os << "\n";
 }
 
-std::string ToIR(const IRModule &module) {
-    std::ostringstream oss;
-    for (const auto &inst : module.globals_) {
-        SerializeInstruction(inst.get(), oss);
+std::string ToIR(const Module &module) {
+  std::ostringstream oss;
+  for (const auto &gv : const_cast<Module &>(module).getGlobalList()) {
+    if (auto *ptrTy = dynamic_cast<PointerType *>(gv->getType())) {
+      oss << "global " << getValName(gv) << " = alloc "
+          << ptrTy->getElementType()->toString() << ", ";
+      if (gv->getInit()) {
+        SerializeConstant(gv->getInit(), oss);
+      } else {
+        oss << "zeroinit";
+      }
+      oss << "\n";
     }
-    oss << "\n";
+  }
+  oss << "\n";
 
-    for (const auto &func : module.GetFunctions()) {
-        if (func->blocks.empty()) {
-            // Declaration
-            oss << "decl " << "@" + func->getName() << "(";
-            for (size_t i = 0; i < func->params.size(); ++i) {
-                 if (i > 0) oss << ", ";
-                 oss << func->params[i].type->toString();
-            }
-            oss << ")";
-            if (!func->getType()->isVoidTy()) {
-                 oss << ": " << func->getType()->toString();
-            }
-            oss << "\n";
-        } else {
-            // Definition
-            oss << "fun " << "@" + func->getName() << "(";
-            for (size_t i = 0; i < func->params.size(); ++i) {
-                 if (i > 0) oss << ", ";
-                 oss << func->params[i].name << ": " << func->params[i].type->toString();
-            }
-            oss << ")";
-            
-            if (!func->getType()->isVoidTy()) {
-                 oss << ": " << func->getType()->toString();
-            }
-            
-            oss << " {\n";
-            for (const auto &bb : func->blocks) {
-                 oss << "%" << bb->getName() << ":\n";
-                 for (const auto &inst : bb->insts) {
-                     SerializeInstruction(inst, oss);
-                 }
-                 oss << "\n";
-            }
-            oss << "}\n\n";
+  for (const auto &func : const_cast<Module &>(module).getFunctionList()) {
+    tracker.assignIDs(func);
+
+    if (func->getBasicBlockList().empty()) {
+      oss << "decl " << getValName(func) << "(";
+      const auto &args = func->getArgs();
+      for (size_t i = 0; i < args.size(); ++i) {
+        if (i > 0)
+          oss << ", ";
+        oss << args[i]->getType()->toString();
+      }
+      oss << ")";
+      if (!func->getType()->getFunctionReturnType()->isVoidTy()) {
+        oss << ": " << func->getType()->getFunctionReturnType()->toString();
+      }
+      oss << "\n";
+    } else {
+      oss << "fun " << getValName(func) << "(";
+      const auto &args = func->getArgs();
+      for (size_t i = 0; i < args.size(); ++i) {
+        if (i > 0)
+          oss << ", ";
+        oss << getValName(args[i]) << ": " << args[i]->getType()->toString();
+      }
+      oss << ")";
+      if (!func->getType()->getFunctionReturnType()->isVoidTy()) {
+        oss << ": " << func->getType()->getFunctionReturnType()->toString();
+      }
+      oss << " {\n";
+      for (auto bb : func->getBasicBlockList()) {
+        oss << getValName(bb) << ":\n";
+        for (const auto &inst : bb->getInstList()) {
+          SerializeInstruction(inst.get(), oss);
         }
+        oss << "\n";
+      }
+      oss << "}\n\n";
     }
-    return oss.str();
+  }
+  return oss.str();
 }
 
 koopa_raw_program_t ToProgram(const std::string &ir) {
-    koopa_program_t program;
-    koopa_error_code_t ret = koopa_parse_from_string(ir.c_str(), &program);
-    assert(ret == KOOPA_EC_SUCCESS);
-    koopa_raw_program_builder_t builder = koopa_new_raw_program_builder();
-    koopa_raw_program_t raw = koopa_build_raw_program(builder, program);
-    koopa_delete_program(program);
-    return raw;
+  koopa_program_t program;
+  koopa_parse_from_string(ir.c_str(), &program);
+  koopa_raw_program_builder_t builder = koopa_new_raw_program_builder();
+  koopa_raw_program_t raw = koopa_build_raw_program(builder, program);
+  koopa_delete_program(program);
+  return raw;
 }
 
-koopa_raw_program_t ToProgram(const IRModule &module) {
-    return ToProgram(ToIR(module));
+koopa_raw_program_t ToProgram(const Module &module) {
+  return ToProgram(ToIR(module));
 }
 
 } // namespace IRSerializer
+} // namespace ldz

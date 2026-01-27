@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace ldz {
+
 /// AST 基类
 class BaseAST {
 public:
@@ -96,10 +98,9 @@ public:
 class InitVarAST : public BaseAST {
 public:
   // exp or init list
-  bool is_const = false;
-  std::unique_ptr<BaseAST> exp;                   // 可能为空
-  std::vector<std::unique_ptr<InitVarAST>> inits; // 可能为空
-  bool IsList() const { return !inits.empty(); }
+  std::unique_ptr<BaseAST> initExpr;                 // 可能为空
+  std::vector<std::unique_ptr<InitVarAST>> initList; // 可能为空
+  bool IsList() const { return !initList.empty(); }
   void Accept(ASTVisitor &visitor) override;
 };
 
@@ -226,3 +227,5 @@ inline void NumberAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void UnaryExpAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void BinaryExpAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void FuncCallAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
+
+} // namespace ldz

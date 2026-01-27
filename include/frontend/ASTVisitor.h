@@ -1,5 +1,7 @@
 #pragma once
 
+namespace ldz {
+
 class CompUnitAST;
 class FuncFParamAST;
 class FuncDefAST;
@@ -48,3 +50,5 @@ public:
   virtual void Visit(BinaryExpAST &node) = 0;
   virtual void Visit(FuncCallAST &node) = 0;
 };
+
+} // namespace ldz

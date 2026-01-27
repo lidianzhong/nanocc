@@ -363,27 +363,28 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     if (gp.index->kind.tag == KOOPA_RVT_INTEGER) {
       // 保持优化，不通过 LoadReg + slli
       int32_t index = gp.index->kind.data.integer.value;
-      
+
       // Calculate type size of pointee
-      size_t type_size = ProgramCodeGen::CalcTypeSize(gp.src->ty->data.pointer.base);
+      size_t type_size =
+          ProgramCodeGen::CalcTypeSize(gp.src->ty->data.pointer.base);
       int32_t offset = index * type_size;
       std::cout << "  li t1, " << offset << std::endl;
     } else {
       LoadReg("t1", gp.index);
-      
-      size_t type_size = ProgramCodeGen::CalcTypeSize(gp.src->ty->data.pointer.base);
-      // For size 4 use shift, otherwise mul. 简单起见，这里总是 mul 或者假设为 4. 
-      // 之前代码假设为 4. 
-      // 但对于 GetPtr, src is pointer. gp.src->ty is pointer to T.
-      // GetPtr result is pointer to T.
-      // Offset is index * sizeof(T).
-      // 之前假定 4 字节. 对于 int* 来说是正确的. 对于数组指针比如 int(*)[10], sizeof(T) = 40.
-      
+
+      size_t type_size =
+          ProgramCodeGen::CalcTypeSize(gp.src->ty->data.pointer.base);
+      // For size 4 use shift, otherwise mul. 简单起见，这里总是 mul
+      // 或者假设为 4. 之前代码假设为 4. 但对于 GetPtr, src is pointer.
+      // gp.src->ty is pointer to T. GetPtr result is pointer to T. Offset is
+      // index * sizeof(T). 之前假定 4 字节. 对于 int* 来说是正确的.
+      // 对于数组指针比如 int(*)[10], sizeof(T) = 40.
+
       if (type_size == 4) {
-          std::cout << "  slli t1, t1, 2" << std::endl;
+        std::cout << "  slli t1, t1, 2" << std::endl;
       } else {
-          std::cout << "  li t2, " << type_size << std::endl;
-          std::cout << "  mul t1, t1, t2" << std::endl;
+        std::cout << "  li t2, " << type_size << std::endl;
+        std::cout << "  mul t1, t1, t2" << std::endl;
       }
     }
 
@@ -411,7 +412,7 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     // According to Koopa spec: GEP on pointer to array/struct.
     // Result is pointer to Element.
     // Element size = sizeof(T.element).
-    
+
     // Example: [4096 x i32]*. GEP 0. Element type is i32, size 4.
     // Wait. GEP on *Array.
     // The size of element is type size of (Array's element).
@@ -419,20 +420,20 @@ void FunctionCodeGen::EmitValue(const koopa_raw_value_t &value) {
     assert(src_ty->tag == KOOPA_RTT_POINTER);
     auto base_ty = src_ty->data.pointer.base;
     assert(base_ty->tag == KOOPA_RTT_ARRAY);
-    
+
     size_t elem_size = ProgramCodeGen::CalcTypeSize(base_ty->data.array.base);
 
     if (gep.index->kind.tag == KOOPA_RVT_INTEGER) {
       int32_t index = gep.index->kind.data.integer.value;
-      int32_t offset = index * elem_size; 
+      int32_t offset = index * elem_size;
       std::cout << "  li t1, " << offset << std::endl;
     } else {
       LoadReg("t1", gep.index);
       if (elem_size == 4) {
-          std::cout << "  slli t1, t1, 2" << std::endl;
+        std::cout << "  slli t1, t1, 2" << std::endl;
       } else {
-          std::cout << "  li t2, " << elem_size << std::endl;
-          std::cout << "  mul t1, t1, t2" << std::endl;
+        std::cout << "  li t2, " << elem_size << std::endl;
+        std::cout << "  mul t1, t1, t2" << std::endl;
       }
     }
 
@@ -499,11 +500,12 @@ void FunctionCodeGen::AllocateStackSpace() {
       koopa_raw_value_t inst = (koopa_raw_value_t)insts.buffer[j];
       if (inst->ty->tag != KOOPA_RTT_UNIT) {
         if (inst->kind.tag == KOOPA_RVT_ALLOC) {
-            // Alloc 指令不仅返回指针，还要在栈上分配它所指向类型的大小
-            size_t size = ProgramCodeGen::CalcTypeSize(inst->ty->data.pointer.base);
-            stack_frame_.AllocSlot(inst, size);
+          // Alloc 指令不仅返回指针，还要在栈上分配它所指向类型的大小
+          size_t size =
+              ProgramCodeGen::CalcTypeSize(inst->ty->data.pointer.base);
+          stack_frame_.AllocSlot(inst, size);
         } else {
-            stack_frame_.AllocSlot(inst, 4);
+          stack_frame_.AllocSlot(inst, 4);
         }
       }
     }
@@ -518,32 +520,34 @@ size_t FunctionCodeGen::GetStackOffset(koopa_raw_value_t val) {
 }
 
 void FunctionCodeGen::LoadReg(const std::string &reg, koopa_raw_value_t val) {
-    if (val->kind.tag == KOOPA_RVT_INTEGER) {
-        std::cout << "  li " << reg << ", " << val->kind.data.integer.value << std::endl;
-        return;
-    }
-    
-    if (val->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
-         std::string name = val->name;
-         name = name.substr(1);
-         std::cout << "  la " << reg << ", " << name << std::endl;
-         return;
-    }
-    
-    size_t offset = GetStackOffset(val);
-    
-    // 如果是 Alloc 指令，Offset 是分配的空间的基址，值就是 Address (sp + offset)
-    if (val->kind.tag == KOOPA_RVT_ALLOC) {
-         if (offset >= -2048 && offset <= 2047) {
-             std::cout << "  addi " << reg << ", sp, " << offset << std::endl;
-         } else {
-             std::cout << "  li " << "t6" << ", " << offset << std::endl;
-             std::cout << "  add " << reg << ", sp, " << "t6" << std::endl;
-         }
+  if (val->kind.tag == KOOPA_RVT_INTEGER) {
+    std::cout << "  li " << reg << ", " << val->kind.data.integer.value
+              << std::endl;
+    return;
+  }
+
+  if (val->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+    std::string name = val->name;
+    name = name.substr(1);
+    std::cout << "  la " << reg << ", " << name << std::endl;
+    return;
+  }
+
+  size_t offset = GetStackOffset(val);
+
+  // 如果是 Alloc 指令，Offset 是分配的空间的基址，值就是 Address (sp + offset)
+  if (val->kind.tag == KOOPA_RVT_ALLOC) {
+    if (static_cast<int32_t>(offset) >= -2048 &&
+        static_cast<int32_t>(offset) <= 2047) {
+      std::cout << "  addi " << reg << ", sp, " << offset << std::endl;
     } else {
-         // 其他情况（参数、临时变量），栈槽里存的是值，需要 Load
-         SafeLoad(reg, offset);
+      std::cout << "  li " << "t6" << ", " << offset << std::endl;
+      std::cout << "  add " << reg << ", sp, " << "t6" << std::endl;
     }
+  } else {
+    // 其他情况（参数、临时变量），栈槽里存的是值，需要 Load
+    SafeLoad(reg, offset);
+  }
 }
 
 void FunctionCodeGen::EmitBlockArgs(koopa_raw_basic_block_t bb,
@@ -552,7 +556,7 @@ void FunctionCodeGen::EmitBlockArgs(koopa_raw_basic_block_t bb,
     koopa_raw_value_t arg = (koopa_raw_value_t)args.buffer[i];
     koopa_raw_value_t param = (koopa_raw_value_t)bb->params.buffer[i];
     size_t param_offset = GetStackOffset(param);
-    
+
     LoadReg("t1", arg);
     SafeStore("t1", param_offset);
   }

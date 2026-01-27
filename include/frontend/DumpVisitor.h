@@ -5,6 +5,8 @@
 #include <fstream>
 #include <string>
 
+using namespace ldz;
+
 class DumpVisitor : public ASTVisitor {
 public:
   DumpVisitor(const std::string &filename = "hello.ast");

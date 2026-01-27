@@ -1,621 +1,877 @@
 #include "ir/IRGenVisitor.h"
 #include "frontend/AST.h"
-#include "frontend/SymbolTable.h"
-#include "ir/IR.h"
+#include "frontend/ASTVisitor.h"
+#include "ir/Constant.h"
+#include "ir/Function.h"
+#include "ir/GlobalVariable.h"
 #include "ir/IRBuilder.h"
+#include "ir/Instruction.h"
+#include "ir/Module.h"
+#include "ir/Type.h"
+#include "ir/Value.h"
+#include "ir/ValueSymbolTable.h"
 #include <cassert>
-#include <iostream>
-#include <memory>
-#include <stdexcept>
 #include <vector>
 
-IRGenVisitor::IRGenVisitor()
-    : module_(std::make_unique<IRModule>()),
-      builder_(std::make_unique<IRBuilder>(module_.get())),
-      symtab_(std::make_unique<SymbolTable>()) {
+namespace ldz {
 
-  auto RegisterStandardLibrary =
-      [this](std::string func_name, std::string ret_type,
-             std::vector<std::pair<std::string, std::string>> param_types) {
-        module_->CreateFunction(func_name, ret_type, param_types);
-      };
+IRGenVisitor::IRGenVisitor(Module &module)
+    : module_(module), builder_(new IRBuilder(&module_)),
+      nameValues_(new ValueSymbolTable()) {
 
-  RegisterStandardLibrary("getint", "i32", {});
-  RegisterStandardLibrary("getch", "i32", {});
-  RegisterStandardLibrary("getarray", "i32", {{"ptr", "*i32"}});
-  RegisterStandardLibrary("putint", "", {{"val", "i32"}});
-  RegisterStandardLibrary("putch", "", {{"val", "i32"}});
-  RegisterStandardLibrary("putarray", "", {{"val", "i32"}, {"ptr", "*i32"}});
-  RegisterStandardLibrary("starttime", "", {});
-  RegisterStandardLibrary("stoptime", "", {});
+  registerLibFunctions();
 }
 
-void IRGenVisitor::VisitCompUnit_(const CompUnitAST *ast) {
-  for (auto &func_def : ast->items) {
-    func_def->Accept(*this);
+//===--------------------------------------------------------------------===//
+// Each Visitor Entry Point
+//
+
+void IRGenVisitor::visitCompUnit_(const CompUnitAST *ast) {
+  for (const auto &item : ast->items) {
+    if (auto *funcDef = dynamic_cast<FuncDefAST *>(item.get())) {
+      visitFuncDef_(funcDef);
+    } else if (auto *decl = dynamic_cast<VarDeclAST *>(item.get())) {
+      visitVarDecl_(decl);
+    } else if (auto *constDecl = dynamic_cast<ConstDeclAST *>(item.get())) {
+      visitConstDecl_(constDecl);
+    } else {
+      assert(false && "Unknown global item");
+    }
   }
 }
 
-void IRGenVisitor::VisitFuncDef_(const FuncDefAST *ast) {
-  if (module_->GetFunction(ast->ident)) {
-    throw std::runtime_error("[Semantic Error]: Duplicate function name " +
-                             ast->ident);
-  }
-  std::string func_name = ast->ident;
-  std::string ret_type = ast->ret_type == "int" ? "i32" : "void";
-  std::vector<std::pair<std::string, std::string>> params;
-  for (auto &param : ast->params) {
-    params.push_back({param->ident, param->btype == "int" ? "i32" : "*i32"});
-  }
+void IRGenVisitor::visitFuncDef_(const FuncDefAST *ast) {
+  // return type
+  Type *retType =
+      (ast->ret_type == "void") ? Type::getVoidTy() : Type::getInt32Ty();
 
-  // 向 IRModule 注册一个函数
-  Function *new_func = module_->CreateFunction(func_name, ret_type, params);
-  builder_->SetCurrentFunction(new_func);
-
-  // 向 SymbolTable 注册函数名
-  symtab_->DefineFunction(func_name, ret_type);
-  symtab_->EnterScope();
-
-  auto *entry_bb = builder_->CreateBlock("entry");
-  auto *exit_bb = builder_->CreateBlock("exit");
-
-  // 将 exit_bb 记录在函数作用域中
-  builder_->cur_func_->exit_bb = exit_bb;
-
-  // 将函数参数存入符号表
-  builder_->SetInsertPoint(entry_bb);
-  for (auto &param : ast->params) {
+  // determine prameter type
+  std::vector<Type *> paramTypes;
+  for (const auto &param : ast->params) {
+    Type *paramType = nullptr;
     if (param->btype == "int") {
-      Value param_addr = builder_->CreateAlloca("i32", param->ident);
-      builder_->CreateStore(Value::Reg("%" + param->ident), param_addr);
-      symtab_->DefineVariable(param->ident, param_addr.reg_or_addr);
+      paramType = Type::getInt32Ty();
+    } else if (param->btype == "*int") {
+      paramType = Type::getInt32Ty();
+      for (auto it = param->dims.rbegin(); it != param->dims.rend(); ++it) {
+        assert(*it != nullptr);
+        int dim = evalConstExpr(it->get()); // evaluate dim expr
+        paramType = Type::getArrayTy(paramType, dim);
+      }
+      paramType = Type::getPointerTy(paramType);
     } else {
-      // 数组参数（指针）
-      // 这里我们简化处理，不分配栈空间，直接将参数寄存器注册为 POINTER
-      // 注意：这意味着我们不支持对数组参数本身的赋值（如 a = b），但这在 C/C++
-      // 数组参数中是允许的（作为指针变量） 如果需要支持
-      // assignment，我们需要分配 alloc *i32，但目前 alloc 只支持 i32
-      symtab_->DefinePointer(param->ident, "%" + param->ident);
+      assert(false && "Unsupported parameter base type");
+    }
+    paramTypes.push_back(paramType);
+  }
+
+  // function object
+  FunctionType *FT = FunctionType::get(retType, paramTypes);
+  Function *F =
+      Function::create(FT, Function::InternalLinkage, ast->ident, module_);
+  nameValues_->insert(ast->ident, F); // insert into symbol table
+
+  // create entry block
+  BasicBlock *entryBB = BasicBlock::create(*F, "entry");
+  F->addBasicBlock(entryBB);
+  builder_->setInsertPoint(entryBB);
+
+  nameValues_->enterScope(); // parameter scope
+
+  // allocate space for parameters and store arguments
+  const auto &args = F->getArgs();
+  for (size_t i = 0; i < args.size(); ++i) {
+    Argument *arg = args[i];
+    const auto &param = ast->params[i];
+    arg->setName(param->ident);
+    Instruction *alloca = builder_->createAlloca(paramTypes[i], param->ident);
+    builder_->createStore(arg, alloca);
+    nameValues_->insert(param->ident,
+                        alloca); // insert parameter into symbol table
+  }
+
+  // visit function body
+  if (ast->block) {
+    ast->block->Accept(*this);
+  }
+
+  // implicit return if needed
+  BasicBlock *currBB = builder_->getInsertBlock();
+  bool hasTerminator = false;
+  if (!currBB->getInstList().empty()) {
+    const Instruction *last = currBB->getInstList().back().get();
+    if (last->getOpcode() == Instruction::Opcode::Ret ||
+        last->getOpcode() == Instruction::Opcode::Br ||
+        last->getOpcode() == Instruction::Opcode::Jmp) {
+      hasTerminator = true;
     }
   }
 
-  // 分配返回值变量
-  if (ret_type == "i32") {
-    Value ret_addr = builder_->CreateAlloca("i32", "ret");
-    builder_->cur_func_->ret_addr = ret_addr;
-    builder_->cur_func_->has_return = true;
-  }
-
-  // 访问函数的 Block(不再重复进入作用域)
-  for (auto &stmt : ast->block->items) {
-    stmt->Accept(*this);
-  }
-
-  // 确保当前块有终结指令
-  if (!builder_->cur_bb_->HasTerminator()) {
-    builder_->CreateJump(new_func->exit_bb);
-  }
-
-  // exit块：加载返回值并返回
-  builder_->SetInsertPoint(new_func->exit_bb);
-  if (builder_->cur_func_->has_return) {
-    Value ret_val = builder_->CreateLoad(builder_->cur_func_->ret_addr);
-    builder_->CreateReturn(ret_val);
-  } else {
-    builder_->CreateReturn();
-  }
-
-  builder_->EndFunction();
-  symtab_->ExitScope();
-}
-
-void IRGenVisitor::VisitBlock_(const BlockAST *ast) {
-  symtab_->EnterScope();
-
-  for (auto &item : ast->items) {
-    if (builder_->cur_bb_->HasTerminator()) {
-      break;
-    }
-    if (item) {
-      item->Accept(*this);
-    }
-  }
-
-  symtab_->ExitScope();
-}
-
-void IRGenVisitor::VisitConstDecl_(const ConstDeclAST *ast) {
-  for (auto &def : ast->const_defs) {
-    def->Accept(*this);
-  }
-}
-
-void IRGenVisitor::VisitConstDef_(const ConstDefAST *ast) {
-  assert(ast->init_val);
-  Value init_val = Eval(ast->init_val.get());
-
-  if (!init_val.isImmediate()) {
-    std::cerr << "const init must be a constant expression" << std::endl;
-    assert(false);
-  }
-
-  if (symtab_->IsGlobal()) {
-    symtab_->DefineGlobalConstant(ast->ident, init_val.imm);
-  } else {
-    symtab_->DefineConstant(ast->ident, init_val.imm);
-  }
-}
-
-void IRGenVisitor::VisitVarDecl_(const VarDeclAST *ast) {
-  for (auto &def : ast->var_defs) {
-    def->Accept(*this);
-  }
-}
-
-void IRGenVisitor::VisitVarDef_(const VarDefAST *ast) {
-  if (ast->array_size == nullptr) {
-    // 单个变量
-    if (symtab_->IsGlobal()) {
-      Value init_val = Value::Imm(0);
-      if (ast->init_val) {
-        init_val = Eval(ast->init_val.get());
-        if (!init_val.isImmediate()) {
-          // 全局变量初始化必须是常量表达式
-          std::cerr
-              << "Global variable initializer must be a constant expression"
-              << std::endl;
-          assert(false);
-        }
-      }
-
-      Value global_addr =
-          builder_->CreateGlobalAlloc("i32", ast->ident, init_val);
-      symtab_->DefineGlobalVariable(ast->ident, global_addr.reg_or_addr);
-      return;
+  if (!hasTerminator) {
+    if (retType->isVoidTy()) {
+      builder_->createRetVoid();
     } else {
-      // 局部变量
-      Value alloc_addr = builder_->CreateAlloca("i32", ast->ident);
-      symtab_->DefineVariable(ast->ident, alloc_addr.reg_or_addr);
-
-      // 初始化
-      if (ast->init_val) {
-        Value init_val = Eval(ast->init_val.get());
-        builder_->CreateStore(init_val, alloc_addr);
-      }
-      return;
-    }
-  } else {
-    // 数组变量
-    Value array_size_val = Eval(ast->array_size.get());
-    if (!array_size_val.isImmediate() || array_size_val.imm <= 0) {
-      std::cerr << "Array size must be a positive constant integer"
-                << std::endl;
-      assert(false);
-    }
-    int array_size = array_size_val.imm;
-
-    if (symtab_->IsGlobal()) {
-      // 全局数组
-      std::vector<Value> init_vals;
-
-      if (ast->init_val) {
-        FlattenInitList(ast->init_val.get(), init_vals);
-        if (init_vals.size() > static_cast<size_t>(array_size)) {
-          std::cerr << "[Semantic Error]: Too many initializers for array "
-                    << ast->ident << std::endl;
-          assert(false);
-        }
-
-        init_vals.resize(array_size, Value::Imm(0));
-      } else {
-        init_vals.resize(array_size, Value::Imm(0));
-      }
-
-      Value global_addr = builder_->CreateGlobalArrayAlloca(
-          "i32", ast->ident, array_size, init_vals);
-      symtab_->DefineGlobalArray(ast->ident, global_addr.reg_or_addr, {array_size});
-      return;
-    } else {
-      // 局部数组
-      Value alloc_addr =
-          builder_->CreateArrayAlloca("i32", ast->ident, array_size);
-      symtab_->DefineArray(ast->ident, alloc_addr.reg_or_addr, {array_size});
-
-      if (ast->init_val) {
-        std::vector<Value> init_vals;
-        FlattenInitList(ast->init_val.get(), init_vals);
-
-        if (init_vals.size() > static_cast<size_t>(array_size)) {
-          std::cerr << "[Semantic Error]: Too many initializers for array "
-                    << ast->ident << std::endl;
-          assert(false);
-        }
-
-        for (int i = 0; i < array_size; i++) {
-          Value idx = Value::Imm(i);
-          Value ptr = builder_->CreateGetElemPtr(alloc_addr, idx);
-
-          if (i < static_cast<int>(init_vals.size())) {
-            builder_->CreateStore(init_vals[i], ptr);
-          } else {
-            builder_->CreateStore(Value::Imm(0), ptr);
-          }
-        }
-      }
+      builder_->createRet(ConstantInt::get(Type::getInt32Ty(), 0));
     }
   }
+
+  nameValues_->exitScope();
 }
 
-void IRGenVisitor::VisitAssignStmt_(const AssignStmtAST *ast) {
-  if (!ast->lval || !ast->exp) {
-    std::cerr << "assign: lval or exp is null" << std::endl;
-    return;
+void IRGenVisitor::visitBlock_(const BlockAST *ast) {
+  nameValues_->enterScope();
+  for (const auto &item : ast->items) {
+    BasicBlock *currBB = builder_->getInsertBlock();
+    if (currBB && !currBB->getInstList().empty()) {
+      const Instruction *last = currBB->getInstList().back().get();
+      if (last->getOpcode() == Instruction::Opcode::Ret ||
+          last->getOpcode() == Instruction::Opcode::Br ||
+          last->getOpcode() == Instruction::Opcode::Jmp) {
+        break;
+      }
+    }
+    item->Accept(*this);
   }
-
-  auto lval_symbol = symtab_->Lookup(ast->lval->ident);
-  if (!lval_symbol) {
-    std::cerr << "symbol not found: " << ast->lval->ident << std::endl;
-    assert(false);
-  }
-
-  if (lval_symbol->type != SYMBOL_TYPE_VARIABLE) {
-    std::cerr << "cannot assign to non-variable: " << ast->lval->ident
-              << std::endl;
-    assert(false);
-  }
-
-  Value dest_addr = Value::Addr(*lval_symbol);
-  Value src_val = Eval(ast->exp.get());
-
-  builder_->CreateStore(src_val, dest_addr);
+  nameValues_->exitScope();
 }
 
-void IRGenVisitor::VisitExpStmt_(const ExpStmtAST *ast) {
+void IRGenVisitor::visitReturnStmt_(const ReturnStmtAST *ast) {
   if (ast->exp) {
-    Eval(ast->exp.get()); // 求值但丢弃结果
+    Value *retVal = evalRVal(ast->exp.get());
+    builder_->createRet(retVal);
+  } else {
+    builder_->createRetVoid();
   }
 }
 
-void IRGenVisitor::VisitIfStmt_(const IfStmtAST *ast) {
-  // TODO: 目前If还不是SSA形式
+void IRGenVisitor::visitVarDecl_(const VarDeclAST *ast) {
+  for (const auto &def : ast->var_defs) {
+    def->Accept(*this);
+  }
+}
 
-  auto *then_bb = builder_->CreateBlock("then");
-  auto *end_bb = builder_->CreateBlock("end");
+void IRGenVisitor::visitVarDef_(const VarDefAST *ast) {
+  // determine type
+  Type *currType = Type::getInt32Ty();
+  for (auto it = ast->dims.rbegin(); it != ast->dims.rend(); ++it) {
+    int dim = evalConstExpr(it->get());
+    currType = Type::getArrayTy(currType, dim);
+  }
+  Type *finalType = currType;
 
-  Value cond = Eval(ast->exp.get());
+  if (nameValues_->isGlobal()) {
+    // Global variable
+    Constant *initializer = nullptr;
+    if (!ast->dims.empty()) {
+      // global array
+      if (ast->init) {
+        initializer = initializeGlobalArray(ast->init.get(), finalType);
+      } else {
+        initializer = ConstantAggregate::getNullValue(finalType);
+      }
+    } else {
+      // global scalar
+      if (ast->init && ast->init->initExpr) {
+        initializer =
+            dynamic_cast<Constant *>(evalRVal(ast->init->initExpr.get()));
+      } else {
+        // assert(!ast->init); // In SysY global var decl always has init or is
+        // 0
+        initializer = Constant::getNullValue(finalType);
+      }
+    }
+    GlobalVariable *GV =
+        GlobalVariable::create(finalType, ast->ident, &module_, initializer);
+    nameValues_->insert(ast->ident,
+                        GV); // insert global variable into symbol table
+  } else {
+    // Local variable
+    Instruction *alloca = builder_->createAlloca(finalType, ast->ident);
+    nameValues_->insert(ast->ident,
+                        alloca); // insert local variable into symbol table
+
+    if (ast->IsArray()) {
+      if (ast->init) {
+        initializeLocalArray(ast->init.get(), alloca, finalType);
+      }
+    } else if (ast->init && ast->init->initExpr) {
+      Value *initVal = evalRVal(ast->init->initExpr.get());
+      builder_->createStore(initVal, alloca);
+    }
+  }
+}
+
+void IRGenVisitor::visitAssignStmt_(const AssignStmtAST *ast) {
+  // 获取左侧变量地址
+  Value *lval = evalLVal(ast->lval.get());
+  Value *rval = evalRVal(ast->exp.get());
+  builder_->createStore(rval, lval);
+}
+
+void IRGenVisitor::visitExpStmt_(const ExpStmtAST *ast) {
+  if (ast->exp)
+    evalRVal(ast->exp.get());
+}
+
+Value *IRGenVisitor::evalBinaryExp(BinaryExpAST *ast) {
+  if (ast->op == "&&") {
+    Value *lhs = evalRVal(ast->lhs.get());
+    if (auto *cL = dynamic_cast<ConstantInt *>(lhs)) {
+      if (cL->getValue() == 0)
+        return ConstantInt::get(Type::getInt32Ty(), 0);
+
+      Value *rhs = evalRVal(ast->rhs.get());
+      if (auto *cR = dynamic_cast<ConstantInt *>(rhs)) {
+        return ConstantInt::get(Type::getInt32Ty(), cR->getValue() != 0);
+      }
+      return builder_->createBinaryOp(Instruction::Opcode::Ne, rhs,
+                                      ConstantInt::get(Type::getInt32Ty(), 0));
+    }
+    return evalLogicalAnd(ast, lhs);
+  }
+  if (ast->op == "||") {
+    Value *lhs = evalRVal(ast->lhs.get());
+    if (auto *cL = dynamic_cast<ConstantInt *>(lhs)) {
+      if (cL->getValue() != 0)
+        return ConstantInt::get(Type::getInt32Ty(), 1);
+
+      Value *rhs = evalRVal(ast->rhs.get());
+      if (auto *cR = dynamic_cast<ConstantInt *>(rhs)) {
+        return ConstantInt::get(Type::getInt32Ty(), cR->getValue() != 0);
+      }
+      return builder_->createBinaryOp(Instruction::Opcode::Ne, rhs,
+                                      ConstantInt::get(Type::getInt32Ty(), 0));
+    }
+    return evalLogicalOr(ast, lhs);
+  }
+
+  Value *lhs = evalRVal(ast->lhs.get());
+  Value *rhs = evalRVal(ast->rhs.get());
+
+  if (auto *CL = dynamic_cast<ConstantInt *>(lhs)) {
+    if (auto *CR = dynamic_cast<ConstantInt *>(rhs)) {
+      int lval = CL->getValue();
+      int rval = CR->getValue();
+      int res = 0;
+      if (ast->op == "+")
+        res = lval + rval;
+      else if (ast->op == "-")
+        res = lval - rval;
+      else if (ast->op == "*")
+        res = lval * rval;
+      else if (ast->op == "/")
+        res = (rval == 0) ? 0 : lval / rval;
+      else if (ast->op == "%")
+        res = (rval == 0) ? 0 : lval % rval;
+      else if (ast->op == "<")
+        res = lval < rval;
+      else if (ast->op == "<=")
+        res = lval <= rval;
+      else if (ast->op == ">")
+        res = lval > rval;
+      else if (ast->op == ">=")
+        res = lval >= rval;
+      else if (ast->op == "==")
+        res = lval == rval;
+      else if (ast->op == "!=")
+        res = lval != rval;
+      else
+        assert(false && "Unknown binary op in constant folding");
+      return ConstantInt::get(Type::getInt32Ty(), res);
+    }
+  }
+
+  Instruction::Opcode op;
+  if (ast->op == "+")
+    op = Instruction::Opcode::Add;
+  else if (ast->op == "-")
+    op = Instruction::Opcode::Sub;
+  else if (ast->op == "*")
+    op = Instruction::Opcode::Mul;
+  else if (ast->op == "/")
+    op = Instruction::Opcode::Div;
+  else if (ast->op == "%")
+    op = Instruction::Opcode::Mod;
+  else if (ast->op == "<")
+    op = Instruction::Opcode::Lt;
+  else if (ast->op == "<=")
+    op = Instruction::Opcode::Le;
+  else if (ast->op == ">")
+    op = Instruction::Opcode::Gt;
+  else if (ast->op == ">=")
+    op = Instruction::Opcode::Ge;
+  else if (ast->op == "==")
+    op = Instruction::Opcode::Eq;
+  else if (ast->op == "!=")
+    op = Instruction::Opcode::Ne;
+  else
+    assert(false && "Unknown binary op");
+
+  return builder_->createBinaryOp(op, lhs, rhs);
+}
+
+Value *IRGenVisitor::evalNumber(NumberAST *ast) {
+  return ConstantInt::get(Type::getInt32Ty(), ast->val);
+}
+
+Value *IRGenVisitor::evalLVal(LValAST *ast) {
+  Value *val = nameValues_->lookup(ast->ident);
+  assert(val && "Undefined variable");
+
+  if (val->getType() == Type::getInt32Ty()) {
+    assert(false && "LVal cannot be a scalar Value");
+  }
+
+  if (ast->indices.empty()) {
+    return val;
+  }
+
+  Value *currPtr = val;
+  bool isPtrParam = false;
+  Type *ty = currPtr->getType();
+
+  if (ty->isPointerTy() && ty->getPointerElementType()->isPointerTy()) {
+    currPtr = builder_->createLoad(currPtr);
+    isPtrParam = true;
+  }
+
+  for (size_t i = 0; i < ast->indices.size(); ++i) {
+    Value *idx = evalRVal(ast->indices[i].get());
+
+    if (i == 0 && isPtrParam) {
+      currPtr = builder_->createGetPtr(currPtr, idx);
+    } else {
+      currPtr = builder_->createGetElemPtr(currPtr, idx);
+    }
+  }
+
+  return currPtr;
+}
+
+Value *IRGenVisitor::evalFuncCall(FuncCallAST *ast) {
+  Value *func = nameValues_->lookup(ast->ident);
+  assert(func && "Function not found");
+  std::vector<Value *> args;
+  for (const auto &arg : ast->args) {
+    args.push_back(evalRVal(arg.get()));
+  }
+  return builder_->createCall(func, args);
+}
+
+Value *IRGenVisitor::evalRVal(BaseAST *ast) {
+  if (auto *lval = dynamic_cast<LValAST *>(ast)) {
+    Value *ptr = evalLVal(lval);
+
+    // Optimization: if it is a constant global variable, return the initializer
+    // directly
+    if (auto *gv = dynamic_cast<GlobalVariable *>(ptr)) {
+      if (constGlobals_.count(gv) && gv->getInit()) {
+        return gv->getInit();
+      }
+    }
+
+    Type *ptrTy = ptr->getType();
+    if (ptrTy->isPointerTy()) {
+      Type *elm = ptrTy->getPointerElementType();
+      if (elm->isArrayTy()) {
+        Value *zero = ConstantInt::get(Type::getInt32Ty(), 0);
+        return builder_->createGetElemPtr(ptr, zero);
+      }
+      return builder_->createLoad(ptr);
+    }
+    return ptr;
+  } else if (auto *num = dynamic_cast<NumberAST *>(ast)) {
+    return evalNumber(num);
+  } else if (auto *bin = dynamic_cast<BinaryExpAST *>(ast)) {
+    return evalBinaryExp(bin);
+  } else if (auto *unary = dynamic_cast<UnaryExpAST *>(ast)) {
+    return evalUnaryExp(unary);
+  } else if (auto *call = dynamic_cast<FuncCallAST *>(ast)) {
+    return evalFuncCall(call);
+  }
+  return nullptr;
+}
+
+void IRGenVisitor::visitConstDecl_(const ConstDeclAST *ast) {
+  for (const auto &def : ast->const_defs) {
+    def->Accept(*this);
+  }
+}
+
+void IRGenVisitor::visitConstDef_(const ConstDefAST *ast) {
+  Type *currType = Type::getInt32Ty();
+  for (auto it = ast->dims.rbegin(); it != ast->dims.rend(); ++it) {
+    int dim = evalConstExpr(it->get());
+    currType = Type::getArrayTy(currType, dim);
+  }
+  Type *finalType = currType;
+
+  Constant *constInit = nullptr;
+  if (ast->init) {
+    constInit = initializeGlobalArray(ast->init.get(), finalType);
+  } else {
+    constInit = Constant::getNullValue(finalType);
+  }
+
+  if (nameValues_->isGlobal()) {
+    GlobalVariable *GV =
+        GlobalVariable::create(finalType, ast->ident, &module_, constInit);
+    nameValues_->insert(ast->ident, GV);
+    constGlobals_.insert(GV);
+  } else {
+    // Local Constant
+    if (finalType->isArrayTy()) {
+      // Promote to internal GlobalVariable to avoid runtime init
+      static int cnt = 0; // Simple counter for unique internal names
+      std::string uniqueName =
+          "__const_" + ast->ident + "_" + std::to_string(cnt++);
+
+      GlobalVariable *GV =
+          GlobalVariable::create(finalType, uniqueName, &module_, constInit);
+      nameValues_->insert(ast->ident, GV);
+      constGlobals_.insert(GV);
+    } else {
+      // Scalar: insert value directly into symbol table. No alloc/store.
+      nameValues_->insert(ast->ident, constInit);
+    }
+  }
+}
+
+void IRGenVisitor::visitInitVar_(const InitVarAST *ast) {
+  // Handled in VarDef
+}
+
+void IRGenVisitor::visitIfStmt_(const IfStmtAST *ast) {
+  Value *cond = evalRVal(ast->exp.get());
+  Function *func = builder_->getInsertBlock()->getParent();
+  BasicBlock *thenBB = BasicBlock::create(*func, "then");
+  BasicBlock *elseBB = nullptr;
+  if (ast->else_stmt)
+    elseBB = BasicBlock::create(*func, "else");
+  BasicBlock *mergeBB = BasicBlock::create(*func, "if_end");
 
   if (ast->else_stmt) {
-    auto *else_bb = builder_->CreateBlock("else");
-    builder_->CreateBranch(cond, then_bb, {}, else_bb, {});
+    builder_->createCondBr(cond, thenBB, elseBB);
+  } else {
+    builder_->createCondBr(cond, thenBB, mergeBB);
+  }
 
-    // then分支
-    builder_->SetInsertPoint(then_bb);
-    assert(ast->then_stmt);
-    ast->then_stmt->Accept(*this);
-    if (!builder_->cur_bb_->HasTerminator()) {
-      builder_->CreateJump(end_bb);
-    }
+  // Then
+  func->addBasicBlock(thenBB);
+  builder_->setInsertPoint(thenBB);
+  ast->then_stmt->Accept(*this);
 
-    // else分支
-    builder_->SetInsertPoint(else_bb);
+  BasicBlock *currThenBB = builder_->getInsertBlock();
+  if (currThenBB->getInstList().empty() ||
+      (currThenBB->getInstList().back()->getOpcode() !=
+           Instruction::Opcode::Ret &&
+       currThenBB->getInstList().back()->getOpcode() !=
+           Instruction::Opcode::Br &&
+       currThenBB->getInstList().back()->getOpcode() !=
+           Instruction::Opcode::Jmp)) {
+    builder_->createJump(mergeBB);
+  }
+
+  // Else
+  if (ast->else_stmt) {
+    func->addBasicBlock(elseBB);
+    builder_->setInsertPoint(elseBB);
     ast->else_stmt->Accept(*this);
-    if (!builder_->cur_bb_->HasTerminator()) {
-      builder_->CreateJump(end_bb);
-    }
-  } else {
-    builder_->CreateBranch(cond, then_bb, {}, end_bb, {});
 
-    // then分支
-    builder_->SetInsertPoint(then_bb);
-    assert(ast->then_stmt);
-    ast->then_stmt->Accept(*this);
-    if (!builder_->cur_bb_->HasTerminator()) {
-      builder_->CreateJump(end_bb);
+    BasicBlock *currElseBB = builder_->getInsertBlock();
+    if (currElseBB->getInstList().empty() ||
+        (currElseBB->getInstList().back()->getOpcode() !=
+             Instruction::Opcode::Ret &&
+         currElseBB->getInstList().back()->getOpcode() !=
+             Instruction::Opcode::Br &&
+         currElseBB->getInstList().back()->getOpcode() !=
+             Instruction::Opcode::Jmp)) {
+      builder_->createJump(mergeBB);
     }
   }
 
-  builder_->SetInsertPoint(end_bb);
+  // Merge
+  func->addBasicBlock(mergeBB);
+  builder_->setInsertPoint(mergeBB);
 }
 
-void IRGenVisitor::VisitWhileStmt_(const WhileStmtAST *ast) {
+void IRGenVisitor::visitWhileStmt_(const WhileStmtAST *ast) {
+  Function *func = builder_->getInsertBlock()->getParent();
+  BasicBlock *condBB = BasicBlock::create(*func, "while_cond");
+  BasicBlock *bodyBB = BasicBlock::create(*func, "while_body");
+  BasicBlock *endBB = BasicBlock::create(*func, "while_end");
 
-  auto *entry_bb = builder_->CreateBlock("while_entry");
-  auto *body_bb = builder_->CreateBlock("while_body");
-  auto *end_bb = builder_->CreateBlock("while_end");
+  builder_->createJump(condBB);
 
-  break_targets_.push_back(end_bb);
-  continue_targets_.push_back(entry_bb);
+  // Condition
+  func->addBasicBlock(condBB);
+  builder_->setInsertPoint(condBB);
+  Value *cond = evalRVal(ast->cond.get());
+  builder_->createCondBr(cond, bodyBB, endBB);
 
-  // 跳转到 entry 块
-  builder_->CreateJump(entry_bb);
+  // Body
+  func->addBasicBlock(bodyBB);
+  builder_->setInsertPoint(bodyBB);
 
-  // entry 块
-  builder_->SetInsertPoint(entry_bb);
-  Value cond = Eval(ast->cond.get());
-  builder_->CreateBranch(cond, body_bb, {}, end_bb, {});
+  breakTargets_.push_back(endBB);
+  continueTargets_.push_back(condBB);
 
-  // body 块
-  builder_->SetInsertPoint(body_bb);
-  assert(ast->body);
   ast->body->Accept(*this);
-  if (!builder_->cur_bb_->HasTerminator()) {
-    builder_->CreateJump(entry_bb);
+
+  breakTargets_.pop_back();
+  continueTargets_.pop_back();
+
+  BasicBlock *currBodyBB = builder_->getInsertBlock();
+  if (currBodyBB->getInstList().empty() ||
+      (currBodyBB->getInstList().back()->getOpcode() !=
+           Instruction::Opcode::Ret &&
+       currBodyBB->getInstList().back()->getOpcode() !=
+           Instruction::Opcode::Br &&
+       currBodyBB->getInstList().back()->getOpcode() !=
+           Instruction::Opcode::Jmp)) {
+    builder_->createJump(condBB);
   }
 
-  break_targets_.pop_back();
-  continue_targets_.pop_back();
-
-  // end 块
-  builder_->SetInsertPoint(end_bb);
+  // End
+  func->addBasicBlock(endBB);
+  builder_->setInsertPoint(endBB);
 }
 
-void IRGenVisitor::VisitBreakStmt_(const BreakStmtAST *ast) {
-  if (break_targets_.empty()) {
-    throw std::runtime_error(
-        "[Semantic Error]: 'break' statement not within a loop");
-  }
-  builder_->CreateJump(break_targets_.back());
+void IRGenVisitor::visitBreakStmt_(const BreakStmtAST *ast) {
+  builder_->createJump(breakTargets_.back());
 }
 
-void IRGenVisitor::VisitContinueStmt_(const ContinueStmtAST *ast) {
-  if (continue_targets_.empty()) {
-    throw std::runtime_error(
-        "[Semantic Error]: 'continue' statement not within a loop");
-  }
-  builder_->CreateJump(continue_targets_.back());
+void IRGenVisitor::visitContinueStmt_(const ContinueStmtAST *ast) {
+  builder_->createJump(continueTargets_.back());
 }
 
-void IRGenVisitor::VisitReturnStmt_(const ReturnStmtAST *ast) {
-  if (builder_->cur_bb_->HasTerminator()) {
-    return;
-  }
+// Lib functions
+void IRGenVisitor::registerLibFunctions() {
+  auto addLibFunc = [&](const std::string &name, Type *retType,
+                        const std::initializer_list<Type *> paramTypes) {
+    FunctionType *FT = FunctionType::get(retType, paramTypes);
+    Function *F =
+        Function::create(FT, Function::ExternalLinkage, name, module_);
+    nameValues_->insert(name, F);
+  };
 
-  if (ast->exp) {
-    Value src_val = Eval(ast->exp.get());
+  Type *i32 = Type::getInt32Ty();
+  Type *voidTy = Type::getVoidTy();
+  Type *ptrI32 = Type::getPointerTy(i32);
 
-    if (builder_->cur_func_->has_return) {
-      builder_->CreateStore(src_val, builder_->cur_func_->ret_addr);
+  addLibFunc("getint", i32, {});
+  addLibFunc("getch", i32, {});
+  addLibFunc("getarray", i32, {ptrI32});
+  addLibFunc("putint", voidTy, {i32});
+  addLibFunc("putch", voidTy, {i32});
+  addLibFunc("putarray", voidTy, {i32, ptrI32});
+  addLibFunc("starttime", voidTy, {});
+  addLibFunc("stoptime", voidTy, {});
+}
+
+Value *IRGenVisitor::evalUnaryExp(UnaryExpAST *ast) {
+  Value *val = evalRVal(ast->exp.get());
+  if (ast->op == "+")
+    return val;
+  if (ast->op == "-")
+    return builder_->createBinaryOp(
+        Instruction::Opcode::Sub, ConstantInt::get(Type::getInt32Ty(), 0), val);
+  if (ast->op == "!")
+    return builder_->createBinaryOp(Instruction::Opcode::Eq, val,
+                                    ConstantInt::get(Type::getInt32Ty(), 0));
+  assert(false && "Unknown unary op");
+  return nullptr;
+}
+
+Value *IRGenVisitor::evalLogicalAnd(BinaryExpAST *ast, Value *lhsVal) {
+  Function *func = builder_->getInsertBlock()->getParent();
+  BasicBlock *rhsBB = BasicBlock::create(*func, "and_rhs");
+  BasicBlock *endBB = BasicBlock::create(*func, "and_end");
+
+  Value *result = builder_->createAlloca(Type::getInt32Ty());
+  Value *lhs = lhsVal ? lhsVal : evalRVal(ast->lhs.get());
+  builder_->createStore(ConstantInt::get(Type::getInt32Ty(), 0), result);
+
+  // if lhs is true, check rhs. else result is 0.
+  builder_->createCondBr(lhs, rhsBB, endBB);
+
+  func->addBasicBlock(rhsBB);
+  builder_->setInsertPoint(rhsBB);
+  Value *rhs = evalRVal(ast->rhs.get());
+  Value *rhsBool = builder_->createBinaryOp(
+      Instruction::Opcode::Ne, rhs, ConstantInt::get(Type::getInt32Ty(), 0));
+  builder_->createStore(rhsBool, result);
+  builder_->createJump(endBB);
+
+  func->addBasicBlock(endBB);
+  builder_->setInsertPoint(endBB);
+  return builder_->createLoad(result);
+}
+
+Value *IRGenVisitor::evalLogicalOr(BinaryExpAST *ast, Value *lhsVal) {
+  Function *func = builder_->getInsertBlock()->getParent();
+  BasicBlock *rhsBB = BasicBlock::create(*func, "or_rhs");
+  BasicBlock *endBB = BasicBlock::create(*func, "or_end");
+
+  Value *result = builder_->createAlloca(Type::getInt32Ty());
+  Value *lhs = lhsVal ? lhsVal : evalRVal(ast->lhs.get());
+  builder_->createStore(ConstantInt::get(Type::getInt32Ty(), 1), result);
+
+  // if lhs is true, result is 1. else check rhs.
+  builder_->createCondBr(lhs, endBB, rhsBB);
+
+  func->addBasicBlock(rhsBB);
+  builder_->setInsertPoint(rhsBB);
+  Value *rhs = evalRVal(ast->rhs.get());
+  Value *rhsBool = builder_->createBinaryOp(
+      Instruction::Opcode::Ne, rhs, ConstantInt::get(Type::getInt32Ty(), 0));
+  builder_->createStore(rhsBool, result);
+  builder_->createJump(endBB);
+
+  func->addBasicBlock(endBB);
+  builder_->setInsertPoint(endBB);
+  return builder_->createLoad(result);
+}
+
+int IRGenVisitor::evalConstExpr(const BaseAST *ast) {
+  if (const auto *num = dynamic_cast<const NumberAST *>(ast)) {
+    return num->val;
+  } else if (const auto *bin = dynamic_cast<const BinaryExpAST *>(ast)) {
+    int lhs = evalConstExpr(bin->lhs.get());
+    int rhs = evalConstExpr(bin->rhs.get());
+    if (bin->op == "+")
+      return lhs + rhs;
+    if (bin->op == "-")
+      return lhs - rhs;
+    if (bin->op == "*")
+      return lhs * rhs;
+    if (bin->op == "/")
+      return rhs ? lhs / rhs : 0;
+    if (bin->op == "%")
+      return rhs ? lhs % rhs : 0;
+    if (bin->op == "<")
+      return lhs < rhs;
+    if (bin->op == "<=")
+      return lhs <= rhs;
+    if (bin->op == ">")
+      return lhs > rhs;
+    if (bin->op == ">=")
+      return lhs >= rhs;
+    if (bin->op == "==")
+      return lhs == rhs;
+    if (bin->op == "!=")
+      return lhs != rhs;
+  } else if (const auto *unary = dynamic_cast<const UnaryExpAST *>(ast)) {
+    int val = evalConstExpr(unary->exp.get());
+    if (unary->op == "+")
+      return val;
+    if (unary->op == "-")
+      return -val;
+    if (unary->op == "!")
+      return val == 0;
+  } else if (const auto *lval = dynamic_cast<const LValAST *>(ast)) {
+    Value *val = nameValues_->lookup(lval->ident);
+    assert(val && "Variable not found");
+
+    if (auto *cInt = dynamic_cast<ConstantInt *>(val)) {
+      return cInt->getValue();
     }
-  }
 
-  // 跳转到函数的 exit 块
-  if (builder_->cur_func_ && builder_->cur_func_->exit_bb) {
-    builder_->CreateJump(builder_->cur_func_->exit_bb);
-  }
-}
+    if (auto *GV = dynamic_cast<GlobalVariable *>(val)) {
+      Constant *curr = GV->getInit();
+      if (!curr)
+        assert(false && "Global variable has no initializer");
 
-// ==================== 表达式求值 ====================
-
-Value IRGenVisitor::Eval(BaseAST *ast) {
-  if (auto *lval = dynamic_cast<LValAST *>(ast)) {
-    return EvalLVal(lval);
-  } else if (auto *number = dynamic_cast<NumberAST *>(ast)) {
-    return EvalNumber(number);
-  } else if (auto *unary = dynamic_cast<UnaryExpAST *>(ast)) {
-    return EvalUnaryExp(unary);
-  } else if (auto *binary = dynamic_cast<BinaryExpAST *>(ast)) {
-    return EvalBinaryExp(binary);
-  } else if (auto *func_call = dynamic_cast<FuncCallAST *>(ast)) {
-    return EvalFuncCall(func_call);
-  } else {
-    std::cerr << "Eval: unsupported expression type" << std::endl;
-    // assert(false);
-  }
-
-  return Value::Imm(0);
-}
-
-Value IRGenVisitor::EvalLVal(LValAST *ast) {
-  auto lval_symbol = symtab_->Lookup(ast->ident);
-  if (!lval_symbol) {
-    std::cerr << "symbol not found: " << ast->ident << std::endl;
-    assert(false);
-  }
-
-  Value base;
-  if (lval_symbol->type == SYMBOL_TYPE_CONSTANT) {
-    return Value::Imm(*lval_symbol);
-  } else if (lval_symbol->type == SYMBOL_TYPE_VARIABLE ||
-             lval_symbol->type == SYMBOL_TYPE_ARRAY) {
-    base = Value::Addr(*lval_symbol);
-  } else if (lval_symbol->type == SYMBOL_TYPE_POINTER) {
-    base = Value::Reg(std::get<std::string>(lval_symbol->value));
-  } else {
-    std::cerr << "unsupported lval symbol type for: " << ast->ident
-              << std::endl;
-    assert(false);
-  }
-
-  if (ast->index_exp) {
-    Value index = Eval(ast->index_exp.get());
-    Value ptr = builder_->CreateGetElemPtr(base, index);
-    return ptr;
-  } else {
-    if (lval_symbol->type == SYMBOL_TYPE_ARRAY) {
-      Value ptr = builder_->CreateGetElemPtr(base, Value::Imm(0));
-      return Value::Reg(ptr.reg_or_addr);
-    } else if (lval_symbol->type == SYMBOL_TYPE_POINTER) {
-      return base;
-    } else {
-      return base;
-    }
-  }
-}
-
-Value IRGenVisitor::EvalNumber(NumberAST *ast) { return Value::Imm(ast->val); }
-
-Value IRGenVisitor::EvalUnaryExp(UnaryExpAST *ast) {
-  if (!ast->exp) {
-    std::cerr << "unary operand is null" << std::endl;
-    assert(false);
-  }
-
-  Value operand = Eval(ast->exp.get());
-  return builder_->CreateUnaryOp(ast->op, operand);
-}
-
-Value IRGenVisitor::EvalBinaryExp(BinaryExpAST *ast) {
-  if (!ast->lhs || !ast->rhs) {
-    std::cerr << "binary operand is null" << std::endl;
-    assert(false);
-  }
-
-  // 短路求值 && 与 ||
-  if (ast->op == "&&") {
-    return EvalLogicalAnd(ast);
-  }
-
-  if (ast->op == "||") {
-    return EvalLogicalOr(ast);
-  }
-
-  Value lhs = Eval(ast->lhs.get());
-  Value rhs = Eval(ast->rhs.get());
-
-  // 常量折叠
-  if (lhs.isImmediate() && rhs.isImmediate()) {
-    int l = lhs.imm, r = rhs.imm;
-    int result;
-    if (ast->op == "+")
-      result = l + r;
-    else if (ast->op == "-")
-      result = l - r;
-    else if (ast->op == "*")
-      result = l * r;
-    else if (ast->op == "/")
-      result = l / r;
-    else if (ast->op == "%")
-      result = l % r;
-    else if (ast->op == "<")
-      result = l < r;
-    else if (ast->op == ">")
-      result = l > r;
-    else if (ast->op == "<=")
-      result = l <= r;
-    else if (ast->op == ">=")
-      result = l >= r;
-    else if (ast->op == "==")
-      result = l == r;
-    else if (ast->op == "!=")
-      result = l != r;
-    else if (ast->op == "&&")
-      result = l && r;
-    else if (ast->op == "||")
-      result = l || r;
-    else {
-      std::cerr << "Unknown binary operator: " << ast->op << std::endl;
-      assert(false);
-    }
-    return Value::Imm(result);
-  }
-
-  return builder_->CreateBinaryOp(ast->op, lhs, rhs);
-}
-
-Value IRGenVisitor::EvalFuncCall(FuncCallAST *ast) {
-  Function *func = module_->GetFunction(ast->ident);
-  if (!func) {
-    std::cerr << "function not found: " << ast->ident << std::endl;
-    assert(false);
-  }
-
-  std::vector<Value> arg_values;
-  for (auto &arg_exp : ast->args) {
-    Value arg_val = Eval(arg_exp.get());
-    arg_values.push_back(arg_val);
-  }
-
-  Value ret_reg;
-  if (func->ret_type == "i32") {
-    ret_reg = builder_->CreateCall(func->name, arg_values, true);
-  } else {
-    builder_->CreateCall(func->name, arg_values, false);
-  }
-  return ret_reg;
-}
-
-/**
- * 逻辑与的返回值一定是 i32 类型的立即数
- */
-Value IRGenVisitor::EvalLogicalAnd(BinaryExpAST *ast) {
-  auto *rhs_bb = builder_->CreateBlock("and_rhs");
-  auto *end_bb = builder_->CreateBlock("and_end");
-
-  // 计算左操作数
-  Value lhs = Eval(ast->lhs.get());
-  builder_->CreateBranch(lhs, rhs_bb, {}, end_bb, {Value::Imm(0)});
-
-  // 计算右操作数
-  builder_->SetInsertPoint(rhs_bb);
-  Value rhs = Eval(ast->rhs.get());
-  Value rhs_bool = builder_->CreateBinaryOp("!=", rhs, Value::Imm(0));
-  builder_->CreateJump(end_bb, {rhs_bool});
-
-  // end_bb 基本快的第一个参数，它是一个 i32 类型的寄存器，将其中的值返回
-  builder_->SetInsertPoint(end_bb);
-  Value res_reg = end_bb->AddParam("i32");
-  return res_reg;
-}
-
-/**
- * 逻辑或的返回值一定是 i32 类型的立即数
- */
-Value IRGenVisitor::EvalLogicalOr(BinaryExpAST *ast) {
-  auto *rhs_bb = builder_->CreateBlock("or_rhs");
-  auto *end_bb = builder_->CreateBlock("or_end");
-
-  // 计算左操作数
-  Value lhs = Eval(ast->lhs.get());
-  builder_->CreateBranch(lhs, end_bb, {Value::Imm(1)}, rhs_bb, {});
-
-  // 计算右操作数
-  builder_->SetInsertPoint(rhs_bb);
-  Value rhs = Eval(ast->rhs.get());
-  Value rhs_bool = builder_->CreateBinaryOp("!=", rhs, Value::Imm(0));
-  builder_->CreateJump(end_bb, {rhs_bool});
-
-  // end_bb 基本快的第一个参数，它是一个 i32 类型的寄存器，将其中的值返回
-  builder_->SetInsertPoint(end_bb);
-  Value res_reg = end_bb->AddParam("i32");
-  return res_reg;
-}
-
-void IRGenVisitor::FlattenInitList(const BaseAST *ast,
-                                   std::vector<Value> &init_vals) {
-  if (auto *init_var = dynamic_cast<const InitVarAST *>(ast)) {
-    if (init_var->is_list) {
-      for (auto &child : init_var->inits) {
-        FlattenInitList(child.get(), init_vals);
+      for (const auto &idx : lval->indices) {
+        int idxVal = evalConstExpr(idx.get());
+        if (auto *cArr = dynamic_cast<ConstantArray *>(curr)) {
+          curr = dynamic_cast<Constant *>(cArr->getOperand(idxVal));
+        } else if (dynamic_cast<ConstantZero *>(curr)) {
+          return 0;
+        } else {
+          assert(false && "Indexing non-array type");
+        }
       }
-    } else {
-      init_vals.push_back(Eval(init_var->exp.get()));
+
+      if (auto *cInt = dynamic_cast<ConstantInt *>(curr)) {
+        return cInt->getValue();
+      } else if (dynamic_cast<ConstantZero *>(curr)) {
+        return 0;
+      }
+      assert(false && "Not an integer constant");
     }
-  } else {
-    // 应该不会走到这里
-    assert(false && "FlattenInitList: unexpected AST type");
+    assert(false && "Not a constant lval");
+  } else if (const auto *call = dynamic_cast<const FuncCallAST *>(ast)) {
+    assert(false && "Function calls not supported in constant expressions");
+  }
+  assert(false);
+  return 0; // TODO: Implement full constant folding
+}
+
+void IRGenVisitor::Visit(CompUnitAST &node) { visitCompUnit_(&node); }
+void IRGenVisitor::Visit(FuncFParamAST &node) { assert(false); }
+void IRGenVisitor::Visit(FuncDefAST &node) { visitFuncDef_(&node); }
+void IRGenVisitor::Visit(BlockAST &node) { visitBlock_(&node); }
+void IRGenVisitor::Visit(ConstDeclAST &node) { visitConstDecl_(&node); }
+void IRGenVisitor::Visit(ConstDefAST &node) { visitConstDef_(&node); }
+void IRGenVisitor::Visit(VarDeclAST &node) { visitVarDecl_(&node); }
+void IRGenVisitor::Visit(VarDefAST &node) { visitVarDef_(&node); }
+void IRGenVisitor::Visit(InitVarAST &node) { visitInitVar_(&node); }
+void IRGenVisitor::Visit(AssignStmtAST &node) { visitAssignStmt_(&node); }
+void IRGenVisitor::Visit(ExpStmtAST &node) { visitExpStmt_(&node); }
+void IRGenVisitor::Visit(IfStmtAST &node) { visitIfStmt_(&node); }
+void IRGenVisitor::Visit(WhileStmtAST &node) { visitWhileStmt_(&node); }
+void IRGenVisitor::Visit(BreakStmtAST &node) { visitBreakStmt_(&node); }
+void IRGenVisitor::Visit(ContinueStmtAST &node) { visitContinueStmt_(&node); }
+void IRGenVisitor::Visit(ReturnStmtAST &node) { visitReturnStmt_(&node); }
+void IRGenVisitor::Visit(LValAST &node) { assert(false); }
+void IRGenVisitor::Visit(NumberAST &node) { assert(false); }
+void IRGenVisitor::Visit(UnaryExpAST &node) { assert(false); }
+void IRGenVisitor::Visit(BinaryExpAST &node) { assert(false); }
+void IRGenVisitor::Visit(FuncCallAST &node) { assert(false); }
+
+Constant *IRGenVisitor::initializeGlobalArray(const InitVarAST *init,
+                                              Type *type) {
+  // 1. Calculate dimensions
+  std::vector<int> dims;
+  Type *tmp = type;
+  while (tmp->isArrayTy()) {
+    dims.push_back(tmp->getArrayNumElements());
+    tmp = tmp->getArrayElementType();
+  }
+  int total_elements = 1;
+  for (int d : dims)
+    total_elements *= d;
+
+  // 2. Flatten AST values to integer constants
+  std::vector<int> vals;
+  std::function<void(const InitVarAST *, int)> flatten =
+      [&](const InitVarAST *curr, int depth) {
+        if (curr->initExpr) {
+          vals.push_back(evalConstExpr(curr->initExpr.get()));
+          return;
+        }
+        for (const auto &child : curr->initList) {
+          if (child->initExpr) {
+            vals.push_back(evalConstExpr(child->initExpr.get()));
+          } else {
+            flatten(child.get(), depth + 1);
+          }
+        }
+      };
+  flatten(init, 0);
+
+  // Padding
+  while (vals.size() < total_elements)
+    vals.push_back(0);
+
+  // 3. Reconstruct ConstantArray recursively
+  int current_offset = 0;
+  std::function<Constant *(Type *)> build_const =
+      [&](Type *currType) -> Constant * {
+    if (currType->isIntegerTy()) {
+      return ConstantInt::get(currType, vals[current_offset++]);
+    }
+    ArrayType *arrTy = dynamic_cast<ArrayType *>(currType);
+    std::vector<Constant *> elements;
+    for (int i = 0; i < arrTy->getNumElements(); ++i) {
+      elements.push_back(build_const(arrTy->getElementType()));
+    }
+    return ConstantArray::get(arrTy, elements);
+  };
+
+  return build_const(type);
+}
+
+void IRGenVisitor::initializeLocalArray(const InitVarAST *init, Value *baseAddr,
+                                        Type *type) {
+  std::vector<int> dims;
+  Type *tmp = type;
+  while (tmp->isArrayTy()) {
+    dims.push_back(tmp->getArrayNumElements());
+    tmp = tmp->getArrayElementType();
+  }
+
+  int total_elements = 1;
+  for (int d : dims)
+    total_elements *= d;
+
+  std::vector<Value *> initValues;
+  // Recursive lambda to flatten init list
+  std::function<void(const InitVarAST *, int)> flatten =
+      [&](const InitVarAST *curr, int depth) {
+        if (curr->initExpr) {
+          initValues.push_back(evalRVal(curr->initExpr.get()));
+          return;
+        }
+
+        // Braced list
+        // If we are at a depth where we expect elements, we iterate
+        for (const auto &child : curr->initList) {
+          if (child->initExpr) {
+            // Scalar inside braces, just push
+            initValues.push_back(evalRVal(child->initExpr.get()));
+          } else {
+            // Nested braces, recurse
+            // Simple heuristic: if we are supposed to go deeper, we do.
+            // SysY structural equivalence is looser, but let's trust AST
+            // structure roughly matches
+            flatten(child.get(), depth + 1);
+          }
+        }
+      };
+
+  // Start flattening
+  flatten(init, 0);
+
+  // Fill remaining with zero
+  while (initValues.size() < total_elements) {
+    initValues.push_back(ConstantInt::get(Type::getInt32Ty(), 0));
+  }
+
+  // Store values into array
+  std::vector<int> current_idx(dims.size(), 0);
+  for (int i = 0; i < total_elements; ++i) {
+    Value *val = initValues[i];
+    if (val->getType()->isIntegerTy()) {
+      // Check bitwidth if strict, for now assume i32
+    }
+
+    // Generate GEP to element
+    Value *ptr = baseAddr;
+    for (int d = 0; d < dims.size(); ++d) {
+      ptr = builder_->createGetElemPtr(
+          ptr, ConstantInt::get(Type::getInt32Ty(), current_idx[d]));
+    }
+    builder_->createStore(val, ptr);
+
+    // Increment multi-dim index
+    for (int d = dims.size() - 1; d >= 0; --d) {
+      current_idx[d]++;
+      if (current_idx[d] < dims[d])
+        break;
+      current_idx[d] = 0;
+    }
   }
 }
 
-// ==================== Visitor接口实现 ====================
+Constant *IRGenVisitor::evalConstant(const InitVarAST *init, Type *ty) {
+  if (init->initExpr) {
+    return dynamic_cast<Constant *>(evalRVal(init->initExpr.get()));
+  }
 
-void IRGenVisitor::Visit(CompUnitAST &node) { VisitCompUnit_(&node); }
-void IRGenVisitor::Visit(FuncFParamAST &node) {}
-void IRGenVisitor::Visit(FuncDefAST &node) { VisitFuncDef_(&node); }
-void IRGenVisitor::Visit(BlockAST &node) { VisitBlock_(&node); }
-void IRGenVisitor::Visit(ConstDeclAST &node) { VisitConstDecl_(&node); }
-void IRGenVisitor::Visit(ConstDefAST &node) { VisitConstDef_(&node); }
-void IRGenVisitor::Visit(VarDeclAST &node) { VisitVarDecl_(&node); }
-void IRGenVisitor::Visit(VarDefAST &node) { VisitVarDef_(&node); }
-void IRGenVisitor::Visit(InitVarAST &node) {}
-void IRGenVisitor::Visit(AssignStmtAST &node) { VisitAssignStmt_(&node); }
-void IRGenVisitor::Visit(ExpStmtAST &node) { VisitExpStmt_(&node); }
-void IRGenVisitor::Visit(IfStmtAST &node) { VisitIfStmt_(&node); }
-void IRGenVisitor::Visit(WhileStmtAST &node) { VisitWhileStmt_(&node); }
-void IRGenVisitor::Visit(BreakStmtAST &node) { VisitBreakStmt_(&node); }
-void IRGenVisitor::Visit(ContinueStmtAST &node) { VisitContinueStmt_(&node); }
-void IRGenVisitor::Visit(ReturnStmtAST &node) { VisitReturnStmt_(&node); }
-void IRGenVisitor::Visit(LValAST &node) {}
-void IRGenVisitor::Visit(NumberAST &node) {}
-void IRGenVisitor::Visit(UnaryExpAST &node) {}
-void IRGenVisitor::Visit(BinaryExpAST &node) {}
-void IRGenVisitor::Visit(FuncCallAST &node) {}
+  ArrayType *arrTy = dynamic_cast<ArrayType *>(ty);
+  if (!arrTy)
+    return Constant::getNullValue(ty);
+
+  std::vector<Constant *> values;
+  for (const auto &subInit : init->initList) {
+    values.push_back(evalConstant(subInit.get(), arrTy->getElementType()));
+  }
+  while (values.size() < arrTy->getNumElements()) {
+    values.push_back(Constant::getNullValue(arrTy->getElementType()));
+  }
+  return ConstantArray::get(arrTy, values);
+}
+
+} // namespace ldz
