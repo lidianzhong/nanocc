@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nanocc - Compiler Explorer</title>
+    
+    <!-- Dependencies -->
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/golden-layout/1.5.9/goldenlayout.min.js"></script>
+    <link type="text/css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/golden-layout/1.5.9/css/goldenlayout-base.css" />
+    <link type="text/css" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/golden-layout/1.5.9/css/goldenlayout-dark-theme.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.30.1/min/vs/loader.min.js"></script>
+
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: #1e1e1e;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        /* Header Styles */
+        #header {
+            height: 50px;
+            background: #252526;
+            border-bottom: 1px solid #3e3e3e;
+            display: flex;
+            align-items: center;
+            padding: 0 1rem;
+            color: #cccccc;
+            box-sizing: border-box;
+        }
+
+        #site-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #4dc9b0; /* VS Code Cyan */
+            margin-right: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            background: #3c3c3c;
+            border: 1px solid #000000;
+            color: #cccccc;
+            padding: 6px 12px;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #505050;
+        }
+
+        .btn-primary {
+            background: #0e639c; /* VS Code Blue */
+            color: white;
+            border: 1px solid #1177bb;
+        }
+
+        .btn-success {
+            background: #388a34; /* VS Code Green */
+            color: white;
+            border: 1px solid #459d3e;
+        }
+
+        select {
+             background: #3c3c3c;
+             color: #cccccc;
+             border: 1px solid #000000;
+             padding: 5px;
+             border-radius: 2px;
+        }
+
+        #status {
+            margin-left: auto;
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* Layout Container */
+        #layout_container {
+            position: absolute;
+            top: 50px;
+            bottom: 0;
+            width: 100%;
+        }
+
+        /* Editor/Panel Styles */
+        .editor-container {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+            padding-top: 4px;
+        }
+        
+        .panel-content {
+            padding: 10px;
+            color: #d4d4d4;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            height: 100%;
+            overflow: auto;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+        }
+        
+        /* Golden Layout Customization */
+        .lm_header {
+            height: 24px !important;
+            box-sizing: border-box;
+        }
+        .lm_tab {
+            height: 24px !important;
+            line-height: 24px !important;
+            font-size: 12px;
+            background-color: #2d2d2d;
+            color:#999;
+            box-sizing: border-box;
+            padding-top: 2px !important;
+        }
+        .lm_tab.lm_active {
+            background-color: #1e1e1e;
+            color: #fff;
+        }
+        .lm_close_tab {
+            top: 4px !important;
+        }
+        .lm_controls {
+            top: 4px !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div id="site-title">
+            <span>Nanocc</span>
+        </div>
+        <div id="controls">
+            <select id="example-select">
+                <option value="">examples</option>
+                <option value="examples/fib.c">fib.c</option>
+                <option value="examples/functions.c">functions.c</option>
+                <option value="examples/array.c">array.c</option>
+                <option value="examples/bubble_sort.c">bubble_sort.c</option>
+                <option value="examples/quick_sort.c">quick_sort.c</option>
+                <option value="examples/merge_sort.c">merge_sort.c</option>
+            </select>
+            <button class="btn btn-primary" id="compile-btn" title="Compile Source Code">
+                <i class="fas fa-cog"></i> Compile
+            </button>
+            <button class="btn btn-success" id="run-btn" title="Run on MiniRiscV VM">
+                <i class="fas fa-play"></i> Run
+            </button>
+        </div>
+        <div id="status">Wait, loading compiler...</div>
+    </div>
+
+    <div id="layout_container"></div>
+
+    <!-- Application Logic -->
+    <script src="nanocc.js"></script>
+    <script src="miniriscv.js"></script>
+    <script>
+        // --- 1. State & Utils ---
+        let compilerModule = null;
+        let myLayout = null;
+        let editors = {
+            source: null,
+            ir: null,
+            asm: null,
+            ast: null,
+            output: null 
+        };
+        
+        const defaultSource = `int main() {
+  while (1) {
+    int a = 1, b = 2;
+    {
+      if (a == 1) {
+        while (a < b) {
+          while (a < b || b - 1 == 0) {
+            a = a + 1;
+          }
+          b = 1;
+          a = a + 1;
+          if (3) continue;
+        }
+      } else if (b == 6) {
+        break;
+      }
+      int b = 6;
+      if (b == 6) return 8 * (10 || b);
+      else while (0);
+    }
+  }
+  return -1;
+}
+`;
+
+        // --- 2. Monaco Editor Setup ---
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.30.1/min/vs' }});
+        
+        require(['vs/editor/editor.main'], function() {
+            // Define Custom Theme
+            monaco.editor.defineTheme('nanocc-dark', {
+                base: 'vs-dark',
+                inherit: true,
+                rules: [
+                    { token: '', foreground: 'd4d4d4' } 
+                ],
+                colors: {
+                    'editor.foreground': '#d4d4d4'
+                }
+            });
+
+            // Register Koopa Language
+            monaco.languages.register({ id: 'koopa' });
+            monaco.languages.setMonarchTokensProvider('koopa', {
+                tokenizer: {
+                    root: [
+                        [/(fun|global|decl|zeroinit|undef|block)\b/, 'keyword.control'],
+                        [/(alloc|load|store|getptr|getelemptr|ne|eq|gt|lt|ge|le|add|sub|mul|div|mod|rem|and|or|xor|shl|shr|sar|br|jump|call|ret|icmp|phi)\b/, 'keyword'], // Instructions
+                        [/@[a-zA-Z0-9_]+/, 'delimiter'], // Global
+                        [/%[a-zA-Z0-9_]+/, 'delimiter'], // Local
+                        [/\/\/.*/, 'comment'],
+                        [/\b\d+\b/, 'number'],
+                        [/:/, 'delimiter']
+                    ]
+                }
+            });
+
+            // Register RISC-V Language
+            monaco.languages.register({ id: 'riscv' });
+            monaco.languages.setMonarchTokensProvider('riscv', {
+                tokenizer: {
+                    root: [
+                        [/(beqz|bnez|j|call|ret|lw|sw|add|addi|sub|slt|sgt|seqz|snez|xor|xori|or|ori|and|andi|sll|srl|sra|mul|div|rem|li|la|mv)\b/, 'type'], 
+                        [/\b(x[0-9]{1,2}|zero|ra|sp|gp|tp|t[0-6]|s[0-1]|s[2-9]|s10|s11|a[0-7]|fp)\b/, 'string'], 
+                        [/[.][a-zA-Z0-9_]+/, 'keyword'], // directives
+                        [/[a-zA-Z_][a-zA-Z0-9_]*:/, 'function'], // labels
+                        [/#.*/, 'comment'],
+                        [/\b\d+\b/, 'number'],
+                        [/,/, 'delimiter']
+                    ]
+                }
+            });
+
+            initLayout();
+        });
+
+        // --- 3. Golden Layout Setup ---
+        function initLayout() {
+            const config = {
+                settings: {
+                    showPopoutIcon: false,
+                    showMaximiseIcon: true,
+                    showCloseIcon: true
+                },
+                dimensions: {
+                    headerHeight: 24
+                },
+                content: [{
+                    type: 'row',
+                    content: [
+                        {
+                            type: 'component',
+                            componentName: 'sourceEditor',
+                            title: 'Source.c',
+                            width: 40,
+                            isClosable: false
+                        },
+                        {
+                            type: 'stack',
+                            width: 30,
+                            content: [
+                                {
+                                    type: 'component',
+                                    componentName: 'irEditor',
+                                    title: 'Koopa IR',
+                                },
+                                {
+                                     type: 'component',
+                                     componentName: 'astEditor',
+                                     title: 'AST Output',
+                                }
+                            ]
+                        },
+                        {
+                            type: 'column',
+                            width: 30,
+                            content: [
+                                {
+                                    type: 'component',
+                                    componentName: 'asmEditor',
+                                    title: 'RISC-V ASM',
+                                    height: 60
+                                },
+                                {
+                                    type: 'component',
+                                    componentName: 'outputPanel',
+                                    title: 'Output',
+                                    height: 40
+                                }
+                            ]
+                        }
+                    ]
+                }]
+            };
+
+            myLayout = new GoldenLayout(config, $('#layout_container'));
+
+            // Register Components
+            myLayout.registerComponent('sourceEditor', function(container, state) {
+                container.getElement().append('<div class="editor-container"></div>');
+                const el = container.getElement().find('.editor-container')[0];
+                
+                editors.source = monaco.editor.create(el, {
+                    value: defaultSource,
+                    language: 'c',
+                    theme: 'nanocc-dark',
+                    minimap: { enabled: false },
+                    automaticLayout: true
+                });
+                
+                container.on('resize', () => editors.source.layout());
+            });
+
+            myLayout.registerComponent('astEditor', function(container, state) {
+                container.getElement().append('<div class="editor-container"></div>');
+                const el = container.getElement().find('.editor-container')[0];
+                
+                editors.ast = monaco.editor.create(el, {
+                    value: '// AST Dump will appear here...',
+                    language: 'plaintext', 
+                    theme: 'nanocc-dark',
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    automaticLayout: true
+                });
+                
+                container.on('resize', () => { if(editors.ast) editors.ast.layout(); });
+            });
+
+
+            myLayout.registerComponent('irEditor', function(container, state) {
+                container.getElement().append('<div class="editor-container"></div>');
+                const el = container.getElement().find('.editor-container')[0];
+
+                editors.ir = monaco.editor.create(el, {
+                    value: '// Koopa IR will appear here...',
+                    language: 'koopa', 
+                    theme: 'nanocc-dark',
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    automaticLayout: true
+                });
+
+                container.on('resize', () => { if(editors.ir) editors.ir.layout(); });
+            });
+
+            myLayout.registerComponent('asmEditor', function(container, state) {
+                container.getElement().append('<div class="editor-container"></div>');
+                const el = container.getElement().find('.editor-container')[0];
+
+                editors.asm = monaco.editor.create(el, {
+                    value: '# RISC-V Assembly will appear here...',
+                    language: 'riscv', 
+                    theme: 'nanocc-dark',
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    automaticLayout: true
+                });
+
+                container.on('resize', () => { if(editors.asm) editors.asm.layout(); });
+            });
+
+            myLayout.registerComponent('outputPanel', function(container, state) {
+                container.getElement().append('<div class="panel-content" id="output-log">Waiting for execution...</div>');
+                editors.output = container;
+            });
+
+            myLayout.init();
+            window.addEventListener('resize', () => { myLayout.updateSize(); });
+        }
+
+        // --- 4. Logic ---
+
+        function updateStatus(msg) {
+            document.getElementById('status').textContent = msg;
+        }
+
+        function appendOutput(text) {
+             const outEl = document.getElementById('output-log');
+             if (outEl) {
+                 outEl.textContent += text;
+                 outEl.scrollTop = outEl.scrollHeight;
+             }
+        }
+        
+        function clearOutput() {
+             const outEl = document.getElementById('output-log');
+             if (outEl) outEl.textContent = "";
+        }
+
+        // Load Compiler
+        NanoccCompiler().then(function(Module) {
+            compilerModule = Module;
+            updateStatus("Compiler Loaded & Ready (WebAssembly)");
+        }).catch(e => {
+            updateStatus("Failed to load compiler: " + e);
+        });
+
+        // Load Example
+        document.getElementById('example-select').addEventListener('change', (e) => {
+            const file = e.target.value;
+            if(!file) return;
+            
+            fetch(file).then(r => r.text()).then(txt => {
+                if(editors.source) editors.source.setValue(txt);
+            }).catch(e => console.error("Error loading example:", e));
+        });
+
+        // Compile
+        document.getElementById('compile-btn').addEventListener('click', () => {
+             if (!compilerModule) { alert("Compiler not ready"); return; }
+             if (!editors.source) return;
+
+             const src = editors.source.getValue();
+             updateStatus("Compiling...");
+             
+             // Compile Logic Handling JSON
+             try {
+                 const resStr = compilerModule.compile(src, "-riscv"); 
+                 const res = JSON.parse(resStr); // New JSON return
+
+                 if(res.error) {
+                     if (editors.asm) editors.asm.setValue(res.error);
+                     updateStatus("Compilation failed.");
+                 } else {
+                     if (editors.asm) editors.asm.setValue(res.code);
+                     if (editors.ast) editors.ast.setValue(res.ast);
+                     
+                     // Also get IR for display? We need to call compile twice or update compile to return all.
+                     // The user requested AST as "output of nanocc_wasm_entry" but we only have one mode param.
+                     // I will call compile again for koopa mode to fill IR panel.
+                     
+                     try {
+                         const irResStr = compilerModule.compile(src, "-koopa");
+                         const irRes = JSON.parse(irResStr);
+                         if(!irRes.error && editors.ir) editors.ir.setValue(irRes.code); 
+                     } catch(e) {}
+                     
+                     updateStatus("Compilation finished.");
+                 }
+             } catch(e) {
+                 if (editors.asm) editors.asm.setValue("Internal Error: " + e);
+                 updateStatus("Compilation exception.");
+             }
+        });
+
+        // Run
+        document.getElementById('run-btn').addEventListener('click', () => {
+            if (!compilerModule) { alert("Compiler not ready"); return; }
+            const src = editors.source.getValue();
+            updateStatus("Compiling & Running...");
+            clearOutput();
+            appendOutput("--- Application Output ---\n");
+
+            let asm = "";
+            try {
+                const resStr = compilerModule.compile(src, "-riscv");
+                const res = JSON.parse(resStr);
+                
+                if (res.error) {
+                    appendOutput("Compilation Error: " + res.error + "\n");
+                    return;
+                }
+                asm = res.code;
+                if (editors.asm) editors.asm.setValue(asm);
+                if (editors.ast) editors.ast.setValue(res.ast);
+
+                // Generate Koopa IR
+                try {
+                     const irResStr = compilerModule.compile(src, "-koopa");
+                     const irRes = JSON.parse(irResStr);
+                     if(!irRes.error && editors.ir) editors.ir.setValue(irRes.code); 
+                } catch(e) {}
+
+            } catch (e) {
+                appendOutput("Compiler Exception: " + e + "\n");
+                return;
+            }
+
+            // Run in VM
+            setTimeout(() => {
+                try {
+                    const vm = new MiniRiscV();
+                    vm.parse(asm);
+                    const exitCode = vm.run((charOrMsg) => {
+                        appendOutput(charOrMsg);
+                    });
+                    
+                    // Handle exit code
+                    if (exitCode !== undefined) {
+                        appendOutput("\n\nProgram exited with code: " + exitCode);
+                    } else {
+                        // If undefined, maybe it didn't return (timeout or error caught inside)
+                        // Error usually logged via callback or exception
+                    }
+                    updateStatus("Execution finished.");
+                } catch(e) {
+                    appendOutput("\nRuntime Error: " + e.message);
+                    updateStatus("Runtime error.");
+                }
+            }, 10);
+        });
+    </script>
+</body>
+</html>
