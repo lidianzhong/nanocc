@@ -17,12 +17,17 @@ public:
   enum ValueID {
     ArgumentVal,
     BasicBlockVal,
+
+    // Constant Range Start
     ConstantIntVal,
     ConstantArrayVal,
     ConstantZeroVal,
+    ConstantExprVal,
+    GlobalVariableVal,
     FunctionVal,
+    // Constant Range End
+
     InstructionVal,
-    GlobalVariableVal
   };
 
 protected:

@@ -2,7 +2,6 @@
 
 #include "ir/BasicBlock.h"
 #include "ir/Instruction.h"
-#include "ir/Module.h"
 #include "ir/Value.h"
 #include <memory>
 #include <utility>
@@ -11,11 +10,10 @@ namespace ldz {
 
 class IRBuilder {
 private:
-  Module *module_;
   BasicBlock *BB_;
 
 public:
-  IRBuilder(Module *module) : module_(module) {}
+  IRBuilder() = default;
   ~IRBuilder() = default;
 
   void setInsertPoint(BasicBlock *BB) { BB_ = BB; }
@@ -44,7 +42,7 @@ public:
   //
 
   /// Allocate a local variable
-  /// @todo Need consider array allocation and global variable allocation
+  /// @note global variables should be created in Module instead!
   Instruction *createAlloca(Type *type, const std::string &var_name = "");
 
   /// load value from memory

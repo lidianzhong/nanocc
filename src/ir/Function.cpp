@@ -5,7 +5,7 @@ namespace ldz {
 
 Function::Function(FunctionType *FT, LinkageTypes linkage,
                    const std::string &name)
-    : Value(FunctionVal, FT), name_(name), linkage_(linkage) {
+    : GlobalValue(FunctionVal, FT), name_(name), linkage_(linkage) {
 
   for (unsigned i = 0; i < FT->getParamTypes().size(); ++i) {
     Type *argTy = FT->getParamTypes()[i];

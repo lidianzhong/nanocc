@@ -2,6 +2,7 @@
 
 #include "frontend/AST.h"
 #include "frontend/ASTVisitor.h"
+#include "ir/Constant.h"
 #include <unordered_set>
 #include <vector>
 
@@ -86,7 +87,6 @@ private:
   void visitConstDef_(const ConstDefAST *ast);
   void visitVarDecl_(const VarDeclAST *ast);
   void visitVarDef_(const VarDefAST *ast);
-  void visitInitVar_(const InitVarAST *ast);
   void visitAssignStmt_(const AssignStmtAST *ast);
   void visitExpStmt_(const ExpStmtAST *ast);
   void visitIfStmt_(const IfStmtAST *ast);
@@ -97,7 +97,7 @@ private:
 
   Value *evalRVal(BaseAST *ast);
   Value *evalLVal(LValAST *ast);
-  Value *evalNumber(NumberAST *ast);
+  ConstantInt *evalNumber(NumberAST *ast);
   Value *evalUnaryExp(UnaryExpAST *ast);
   Value *evalBinaryExp(BinaryExpAST *ast);
   Value *evalFuncCall(FuncCallAST *ast);

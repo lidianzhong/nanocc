@@ -1,9 +1,9 @@
-#include "IR/IRGenVisitor.h"
-#include "IR/IRSerializer.h"
-#include "IR/Module.h"
 #include "backend/CodeGen.h"
 #include "frontend/AST.h"
 #include "frontend/DumpVisitor.h"
+#include "ir/IRGenVisitor.h"
+#include "ir/IRSerializer.h"
+#include "ir/Module.h"
 
 #include <cassert>
 #include <cstdio>

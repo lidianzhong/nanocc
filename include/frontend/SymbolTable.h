@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+namespace ldz {
+
 class SymbolTable {
 public:
   using SymbolMap = std::map<std::string, Value *>;
@@ -51,3 +53,5 @@ public:
 private:
   std::vector<SymbolMap> layers_;
 };
+
+} // namespace ldz

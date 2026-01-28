@@ -44,7 +44,8 @@ public:
                                 ArgsTy... args);
 
   GlobalVariable *getGlobalVariable(const std::string &name);
-  GlobalVariable *getOrInsertGlobal(const std::string &name, Type *ty);
+  GlobalVariable *getOrInsertGlobal(const std::string &name, Type *ty,
+                                    bool isConstant);
 };
 
 } // namespace ldz

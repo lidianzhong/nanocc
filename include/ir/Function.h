@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ir/BasicBlock.h"
+#include "ir/GlobalValue.h"
 #include "ir/Module.h"
 #include "ir/Type.h"
 #include "ir/Value.h"
@@ -34,7 +35,7 @@ private:
   unsigned argNo_;
 };
 
-class Function : public Value {
+class Function : public GlobalValue {
 private:
   using BasicBlockListType = std::list<BasicBlock *>;
   using ArgumentListType = std::vector<Argument *>;

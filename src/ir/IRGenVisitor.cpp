@@ -11,12 +11,13 @@
 #include "ir/Value.h"
 #include "ir/ValueSymbolTable.h"
 #include <cassert>
+#include <cstddef>
 #include <vector>
 
 namespace ldz {
 
 IRGenVisitor::IRGenVisitor(Module &module)
-    : module_(module), builder_(new IRBuilder(&module_)),
+    : module_(module), builder_(new IRBuilder()),
       nameValues_(new ValueSymbolTable()) {
 
   registerLibFunctions();
@@ -86,8 +87,8 @@ void IRGenVisitor::visitFuncDef_(const FuncDefAST *ast) {
     arg->setName(param->ident);
     Instruction *alloca = builder_->createAlloca(paramTypes[i], param->ident);
     builder_->createStore(arg, alloca);
-    nameValues_->insert(param->ident,
-                        alloca); // insert parameter into symbol table
+    // insert parameter into symbol table
+    nameValues_->insert(param->ident, alloca);
   }
 
   // visit function body
@@ -180,15 +181,13 @@ void IRGenVisitor::visitVarDef_(const VarDefAST *ast) {
         initializer = Constant::getNullValue(finalType);
       }
     }
-    GlobalVariable *GV =
-        GlobalVariable::create(finalType, ast->ident, &module_, initializer);
-    nameValues_->insert(ast->ident,
-                        GV); // insert global variable into symbol table
+    GlobalVariable *GV = GlobalVariable::create(finalType, ast->ident, &module_,
+                                                initializer, false);
+    // insert global variable into symbol table
+    nameValues_->insert(ast->ident, GV);
   } else {
     // Local variable
     Instruction *alloca = builder_->createAlloca(finalType, ast->ident);
-    nameValues_->insert(ast->ident,
-                        alloca); // insert local variable into symbol table
 
     if (ast->IsArray()) {
       if (ast->init) {
@@ -198,6 +197,9 @@ void IRGenVisitor::visitVarDef_(const VarDefAST *ast) {
       Value *initVal = evalRVal(ast->init->initExpr.get());
       builder_->createStore(initVal, alloca);
     }
+
+    // insert local variable into symbol table
+    nameValues_->insert(ast->ident, alloca);
   }
 }
 
@@ -214,11 +216,13 @@ void IRGenVisitor::visitExpStmt_(const ExpStmtAST *ast) {
 }
 
 Value *IRGenVisitor::evalBinaryExp(BinaryExpAST *ast) {
+  // Short-circuit evaluation for logical AND
   if (ast->op == "&&") {
     Value *lhs = evalRVal(ast->lhs.get());
     if (auto *cL = dynamic_cast<ConstantInt *>(lhs)) {
-      if (cL->getValue() == 0)
+      if (cL->getValue() == 0) {
         return ConstantInt::get(Type::getInt32Ty(), 0);
+      }
 
       Value *rhs = evalRVal(ast->rhs.get());
       if (auto *cR = dynamic_cast<ConstantInt *>(rhs)) {
@@ -229,6 +233,8 @@ Value *IRGenVisitor::evalBinaryExp(BinaryExpAST *ast) {
     }
     return evalLogicalAnd(ast, lhs);
   }
+
+  // Short-circuit evaluation for logical OR
   if (ast->op == "||") {
     Value *lhs = evalRVal(ast->lhs.get());
     if (auto *cL = dynamic_cast<ConstantInt *>(lhs)) {
@@ -248,6 +254,7 @@ Value *IRGenVisitor::evalBinaryExp(BinaryExpAST *ast) {
   Value *lhs = evalRVal(ast->lhs.get());
   Value *rhs = evalRVal(ast->rhs.get());
 
+  // Constant folding for binary operations
   if (auto *CL = dynamic_cast<ConstantInt *>(lhs)) {
     if (auto *CR = dynamic_cast<ConstantInt *>(rhs)) {
       int lval = CL->getValue();
@@ -310,7 +317,7 @@ Value *IRGenVisitor::evalBinaryExp(BinaryExpAST *ast) {
   return builder_->createBinaryOp(op, lhs, rhs);
 }
 
-Value *IRGenVisitor::evalNumber(NumberAST *ast) {
+ConstantInt *IRGenVisitor::evalNumber(NumberAST *ast) {
   return ConstantInt::get(Type::getInt32Ty(), ast->val);
 }
 
@@ -318,34 +325,33 @@ Value *IRGenVisitor::evalLVal(LValAST *ast) {
   Value *val = nameValues_->lookup(ast->ident);
   assert(val && "Undefined variable");
 
-  if (val->getType() == Type::getInt32Ty()) {
-    assert(false && "LVal cannot be a scalar Value");
-  }
+  assert(val->getType() != Type::getInt32Ty() && "scalar cannot be addressed");
 
-  if (ast->indices.empty()) {
+  // scalar variable return directly
+  if (ast->indices.empty())
     return val;
-  }
 
-  Value *currPtr = val;
-  bool isPtrParam = false;
-  Type *ty = currPtr->getType();
+  // local array or local pointer parameter, local scalar
+  // global variable same handling
 
-  if (ty->isPointerTy() && ty->getPointerElementType()->isPointerTy()) {
-    currPtr = builder_->createLoad(currPtr);
-    isPtrParam = true;
-  }
+  // determine if is pointer parameter
+  Type *ty = val->getType();
+  bool isPtrParam =
+      ty->isPointerTy() && ty->getPointerElementType()->isPointerTy();
 
+  Value *ptr = val;
   for (size_t i = 0; i < ast->indices.size(); ++i) {
     Value *idx = evalRVal(ast->indices[i].get());
-
     if (i == 0 && isPtrParam) {
-      currPtr = builder_->createGetPtr(currPtr, idx);
+      ptr = builder_->createLoad(ptr);
+      ptr = builder_->createGetPtr(ptr, idx);
     } else {
-      currPtr = builder_->createGetElemPtr(currPtr, idx);
+      ptr = builder_->createGetElemPtr(ptr, idx);
     }
   }
-
-  return currPtr;
+  // ptr is lval, must be pointer
+  assert(ptr->getType()->isPointerTy());
+  return ptr;
 }
 
 Value *IRGenVisitor::evalFuncCall(FuncCallAST *ast) {
@@ -360,26 +366,24 @@ Value *IRGenVisitor::evalFuncCall(FuncCallAST *ast) {
 
 Value *IRGenVisitor::evalRVal(BaseAST *ast) {
   if (auto *lval = dynamic_cast<LValAST *>(ast)) {
+    Value *val = nameValues_->lookup(lval->ident);
+    assert(val && "Variable not found");
+
+    // const scalar no need to load, return directly
+    if (auto *cInt = dynamic_cast<ConstantInt *>(val)) {
+      return cInt;
+    }
+
     Value *ptr = evalLVal(lval);
 
-    // Optimization: if it is a constant global variable, return the initializer
-    // directly
-    if (auto *gv = dynamic_cast<GlobalVariable *>(ptr)) {
-      if (constGlobals_.count(gv) && gv->getInit()) {
-        return gv->getInit();
-      }
+    // 数组指针退化
+    if (ptr->getType()->getPointerElementType()->isArrayTy()) {
+      Value *zero = ConstantInt::get(Type::getInt32Ty(), 0);
+      return builder_->createGetElemPtr(ptr, zero);
     }
 
-    Type *ptrTy = ptr->getType();
-    if (ptrTy->isPointerTy()) {
-      Type *elm = ptrTy->getPointerElementType();
-      if (elm->isArrayTy()) {
-        Value *zero = ConstantInt::get(Type::getInt32Ty(), 0);
-        return builder_->createGetElemPtr(ptr, zero);
-      }
-      return builder_->createLoad(ptr);
-    }
-    return ptr;
+    return builder_->createLoad(ptr);
+
   } else if (auto *num = dynamic_cast<NumberAST *>(ast)) {
     return evalNumber(num);
   } else if (auto *bin = dynamic_cast<BinaryExpAST *>(ast)) {
@@ -399,6 +403,7 @@ void IRGenVisitor::visitConstDecl_(const ConstDeclAST *ast) {
 }
 
 void IRGenVisitor::visitConstDef_(const ConstDefAST *ast) {
+  // determine type
   Type *currType = Type::getInt32Ty();
   for (auto it = ast->dims.rbegin(); it != ast->dims.rend(); ++it) {
     int dim = evalConstExpr(it->get());
@@ -406,39 +411,47 @@ void IRGenVisitor::visitConstDef_(const ConstDefAST *ast) {
   }
   Type *finalType = currType;
 
-  Constant *constInit = nullptr;
-  if (ast->init) {
-    constInit = initializeGlobalArray(ast->init.get(), finalType);
-  } else {
-    constInit = Constant::getNullValue(finalType);
-  }
-
   if (nameValues_->isGlobal()) {
-    GlobalVariable *GV =
-        GlobalVariable::create(finalType, ast->ident, &module_, constInit);
-    nameValues_->insert(ast->ident, GV);
-    constGlobals_.insert(GV);
-  } else {
-    // Local Constant
-    if (finalType->isArrayTy()) {
-      // Promote to internal GlobalVariable to avoid runtime init
-      static int cnt = 0; // Simple counter for unique internal names
-      std::string uniqueName =
-          "__const_" + ast->ident + "_" + std::to_string(cnt++);
-
-      GlobalVariable *GV =
-          GlobalVariable::create(finalType, uniqueName, &module_, constInit);
-      nameValues_->insert(ast->ident, GV);
-      constGlobals_.insert(GV);
+    // Global variable
+    Constant *initializer = nullptr;
+    if (!ast->dims.empty()) {
+      // global array
+      if (ast->init) {
+        initializer = initializeGlobalArray(ast->init.get(), finalType);
+      } else {
+        initializer = ConstantAggregate::getNullValue(finalType);
+      }
     } else {
-      // Scalar: insert value directly into symbol table. No alloc/store.
-      nameValues_->insert(ast->ident, constInit);
+      // global scalar
+      if (ast->init && ast->init->initExpr) {
+        initializer =
+            dynamic_cast<Constant *>(evalRVal(ast->init->initExpr.get()));
+      } else {
+        // assert(!ast->init); // In SysY global var decl always has init or is
+        // 0
+        initializer = Constant::getNullValue(finalType);
+      }
+    }
+    GlobalVariable *GV = GlobalVariable::create(finalType, ast->ident, &module_,
+                                                initializer, false);
+    // insert global variable into symbol table
+    nameValues_->insert(ast->ident, GV);
+  } else {
+    // Local variable
+    if (ast->IsArray()) {
+      Instruction *alloca = builder_->createAlloca(finalType, ast->ident);
+      if (ast->init) {
+        initializeLocalArray(ast->init.get(), alloca, finalType);
+      }
+
+      nameValues_->insert(ast->ident, alloca);
+
+    } else if (ast->init && ast->init->initExpr) {
+      Value *initVal = evalRVal(ast->init->initExpr.get());
+
+      nameValues_->insert(ast->ident, initVal);
     }
   }
-}
-
-void IRGenVisitor::visitInitVar_(const InitVarAST *ast) {
-  // Handled in VarDef
 }
 
 void IRGenVisitor::visitIfStmt_(const IfStmtAST *ast) {
@@ -701,7 +714,7 @@ int IRGenVisitor::evalConstExpr(const BaseAST *ast) {
       assert(false && "Not an integer constant");
     }
     assert(false && "Not a constant lval");
-  } else if (const auto *call = dynamic_cast<const FuncCallAST *>(ast)) {
+  } else if (dynamic_cast<const FuncCallAST *>(ast)) {
     assert(false && "Function calls not supported in constant expressions");
   }
   assert(false);
@@ -716,7 +729,7 @@ void IRGenVisitor::Visit(ConstDeclAST &node) { visitConstDecl_(&node); }
 void IRGenVisitor::Visit(ConstDefAST &node) { visitConstDef_(&node); }
 void IRGenVisitor::Visit(VarDeclAST &node) { visitVarDecl_(&node); }
 void IRGenVisitor::Visit(VarDefAST &node) { visitVarDef_(&node); }
-void IRGenVisitor::Visit(InitVarAST &node) { visitInitVar_(&node); }
+void IRGenVisitor::Visit(InitVarAST &node) { assert(false); }
 void IRGenVisitor::Visit(AssignStmtAST &node) { visitAssignStmt_(&node); }
 void IRGenVisitor::Visit(ExpStmtAST &node) { visitExpStmt_(&node); }
 void IRGenVisitor::Visit(IfStmtAST &node) { visitIfStmt_(&node); }

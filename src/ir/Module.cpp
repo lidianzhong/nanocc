@@ -37,13 +37,14 @@ GlobalVariable *Module::getGlobalVariable(const std::string &name) {
   return nullptr;
 }
 
-GlobalVariable *Module::getOrInsertGlobal(const std::string &name, Type *ty) {
+GlobalVariable *Module::getOrInsertGlobal(const std::string &name, Type *ty,
+                                          bool isConstant) {
   GlobalVariable *GV = getGlobalVariable(name);
   if (GV) {
     return GV;
   }
 
-  GV = GlobalVariable::create(ty, name, this);
+  GV = GlobalVariable::create(ty, name, this, nullptr, isConstant);
   globalList_.push_back(GV);
   valSymTab_.insert(name, GV);
   return GV;

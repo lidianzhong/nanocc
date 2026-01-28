@@ -1,26 +1,33 @@
 #pragma once
 
-#include "ir/Constant.h"
+#include "ir/GlobalValue.h"
 #include "ir/Module.h"
-#include "ir/User.h"
-#include "ir/ValueSymbolTable.h"
 
 namespace ldz {
 
 class Type;
 
-class GlobalVariable : public User {
+/// Global variable class
+class GlobalVariable : public GlobalValue {
 public:
-  GlobalVariable(Type *ty, const std::string &name, Constant *init)
-      : User(Value::GlobalVariableVal, Type::getPointerTy(ty)), name_(name),
-        initVal_(init) {
-    if (init)
-      addOperand(init);
+  GlobalVariable(Type *ty, const std::string &name, Constant *initializer,
+                 bool isConstant)
+      : GlobalValue(Value::GlobalVariableVal, Type::getPointerTy(ty)),
+        name_(name), initializer_(initializer), isConstantGlobal_(isConstant) {
+    if (initializer)
+      addOperand(initializer);
   }
 
+  /// Create a GlobalVariable and insert it into Module's global list and symbol
+  /// table.
+  /// @param ty Type of the global variable
+  /// @param name Name of the global variable
+  /// @param M Module to insert the global variable into
+  /// @param init Initializer constant (can be nullptr)
   static GlobalVariable *create(Type *ty, const std::string &name, Module *M,
-                                Constant *init = nullptr) {
-    auto *GV = new GlobalVariable(ty, name, init);
+                                Constant *initializer = nullptr,
+                                bool isConstant = false) {
+    auto *GV = new GlobalVariable(ty, name, initializer, isConstant);
 
     ValueSymbolTable &ST = M->getValueSymbolTable();
     ST.insert(name, GV);
@@ -29,12 +36,19 @@ public:
     return GV;
   }
 
+  /// Get the name of the global variable
   std::string getName() const { return name_; }
-  Constant *getInit() const { return initVal_; }
+
+  /// Get the initializer constant
+  Constant *getInit() const { return initializer_; }
+
+  /// Check if the global variable is constant
+  bool isConstant() const { return isConstantGlobal_; }
 
 private:
-  std::string name_;
-  Constant *initVal_;
+  std::string name_;                ///< Name of the global variable
+  Constant *initializer_ = nullptr; ///< Initializer constant
+  bool isConstantGlobal_;           ///< Is the global variable constant
 };
 
 } // namespace ldz
