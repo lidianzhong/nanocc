@@ -1,6 +1,6 @@
 #pragma once
 
-namespace ldz {
+namespace nanocc {
 
 class CompUnitAST;
 class FuncFParamAST;
@@ -51,4 +51,4 @@ public:
   virtual void Visit(FuncCallAST &node) = 0;
 };
 
-} // namespace ldz
+} // namespace nanocc

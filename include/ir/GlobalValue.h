@@ -2,7 +2,7 @@
 
 #include "ir/Constant.h"
 
-namespace ldz {
+namespace nanocc {
 
 class GlobalValue : public Constant {
 public:
@@ -18,4 +18,4 @@ public:
   }
 };
 
-} // namespace ldz
+} // namespace nanocc

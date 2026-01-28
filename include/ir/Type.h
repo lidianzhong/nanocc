@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 
 class Type {
 public:
@@ -214,4 +214,4 @@ inline const std::vector<Type *> &Type::getFunctionParamTypes() const {
   return empty;
 }
 
-} // namespace ldz
+} // namespace nanocc

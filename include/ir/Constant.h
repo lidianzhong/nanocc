@@ -2,7 +2,7 @@
 
 #include "ir/User.h"
 
-namespace ldz {
+namespace nanocc {
 
 /// Base class for all constant values.
 /// see GlobalValue (Function, GlobalVariable) in GlobalValue.h
@@ -94,4 +94,4 @@ public:
   }
 };
 
-} // namespace ldz
+} // namespace nanocc

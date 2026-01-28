@@ -1,6 +1,6 @@
 #pragma once
 
-namespace ldz {
+namespace nanocc {
 
 class User;
 class Value;
@@ -63,4 +63,4 @@ private:
   }
 };
 
-} // namespace ldz
+} // namespace nanocc

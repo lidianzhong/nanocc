@@ -7,7 +7,7 @@
 #include <memory>
 #include <string>
 
-namespace ldz {
+namespace nanocc {
 
 class Function;
 
@@ -39,4 +39,4 @@ private:
   std::string name_;
 };
 
-} // namespace ldz
+} // namespace nanocc

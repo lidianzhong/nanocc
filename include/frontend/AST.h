@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 
 /// AST 基类
 class BaseAST {
@@ -228,4 +228,4 @@ inline void UnaryExpAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void BinaryExpAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 inline void FuncCallAST::Accept(ASTVisitor &visitor) { visitor.Visit(*this); }
 
-} // namespace ldz
+} // namespace nanocc

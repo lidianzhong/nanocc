@@ -3,7 +3,7 @@
 #include "ir/Type.h"
 #include "ir/Use.h"
 
-namespace ldz {
+namespace nanocc {
 
 class Type;
 class Value;
@@ -76,4 +76,4 @@ inline const Use &Use::operator=(const Use &RHS) {
   return *this;
 }
 
-} // namespace ldz
+} // namespace nanocc

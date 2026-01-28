@@ -3,7 +3,7 @@
 #include "ir/GlobalValue.h"
 #include "ir/Module.h"
 
-namespace ldz {
+namespace nanocc {
 
 class Type;
 
@@ -51,4 +51,4 @@ private:
   bool isConstantGlobal_;           ///< Is the global variable constant
 };
 
-} // namespace ldz
+} // namespace nanocc

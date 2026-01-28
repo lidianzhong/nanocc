@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 
 class Type;
 class Module;
@@ -85,4 +85,4 @@ private:
   std::vector<Argument *> arguments_;
 };
 
-} // namespace ldz
+} // namespace nanocc

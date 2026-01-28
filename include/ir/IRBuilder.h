@@ -6,7 +6,7 @@
 #include <memory>
 #include <utility>
 
-namespace ldz {
+namespace nanocc {
 
 class IRBuilder {
 private:
@@ -72,4 +72,4 @@ public:
   Instruction *createCall(Value *func, std::vector<Value *> args);
 };
 
-} // namespace ldz
+} // namespace nanocc

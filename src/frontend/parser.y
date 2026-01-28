@@ -13,17 +13,17 @@
 
 // 声明 lexer 函数和错误处理函数
 int yylex();
-void yyerror(std::unique_ptr<ldz::BaseAST> &ast, const char *s);
+void yyerror(std::unique_ptr<nanocc::BaseAST> &ast, const char *s);
 
 using namespace std;
-using namespace ldz;
+using namespace nanocc;
 
 %}
 
 // 定义 parser 函数和错误处理函数的附加参数
 // 我们需要返回一个字符串作为 AST, 所以我们把附加参数定义成字符串的智能指针
 // 解析完成后, 我们要手动修改这个参数, 把它设置成解析得到的字符串
-%parse-param { std::unique_ptr<ldz::BaseAST> &ast }
+%parse-param { std::unique_ptr<nanocc::BaseAST> &ast }
 
 // yylval 的定义, 我们把它定义成了一个联合体 (union)
 // 因为 token 的值有的是字符串指针, 有的是整数
@@ -33,9 +33,9 @@ using namespace ldz;
 %union {
   std::string *str_val;
   int int_val;
-  ldz::BaseAST *ast_val;
-  std::vector<std::unique_ptr<ldz::BaseAST>> *ast_list;
-  std::vector<std::unique_ptr<ldz::FuncFParamAST>> *param_list;
+  nanocc::BaseAST *ast_val;
+  std::vector<std::unique_ptr<nanocc::BaseAST>> *ast_list;
+  std::vector<std::unique_ptr<nanocc::FuncFParamAST>> *param_list;
 }
 
 // lexer 返回的所有 token 种类的声明

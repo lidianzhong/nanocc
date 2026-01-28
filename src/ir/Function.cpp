@@ -1,7 +1,7 @@
 #include "ir/Function.h"
 #include "ir/Module.h"
 
-namespace ldz {
+namespace nanocc {
 
 Function::Function(FunctionType *FT, LinkageTypes linkage,
                    const std::string &name)
@@ -52,4 +52,4 @@ std::string Function::getUniqueName(const std::string &name) {
   }
 }
 
-} // namespace ldz
+} // namespace nanocc

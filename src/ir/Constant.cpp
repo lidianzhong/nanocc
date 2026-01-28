@@ -1,7 +1,7 @@
 #include "ir/Constant.h"
 #include "ir/Type.h"
 
-namespace ldz {
+namespace nanocc {
 
 Constant *Constant::getNullValue(Type *ty) {
   if (ty->isIntegerTy()) {
@@ -24,4 +24,4 @@ ConstantArray *ConstantArray::get(ArrayType *ty,
 
 ConstantZero *ConstantZero::get(Type *ty) { return new ConstantZero(ty); }
 
-} // namespace ldz
+} // namespace nanocc

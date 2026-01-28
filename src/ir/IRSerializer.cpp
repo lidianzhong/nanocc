@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 namespace IRSerializer {
 
 class SlotTracker {
@@ -279,4 +279,4 @@ koopa_raw_program_t ToProgram(const Module &module) {
 }
 
 } // namespace IRSerializer
-} // namespace ldz
+} // namespace nanocc

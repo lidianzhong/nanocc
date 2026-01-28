@@ -6,7 +6,7 @@
 #include <list>
 #include <string>
 
-namespace ldz {
+namespace nanocc {
 
 class GlobalVariable;
 class Function;
@@ -48,4 +48,4 @@ public:
                                     bool isConstant);
 };
 
-} // namespace ldz
+} // namespace nanocc

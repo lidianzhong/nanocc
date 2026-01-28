@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 
 class Value;
 
@@ -33,4 +33,4 @@ public:
   bool isGlobal() const;
 };
 
-} // namespace ldz
+} // namespace nanocc

@@ -6,7 +6,7 @@
 #include <cassert>
 #include <utility>
 
-namespace ldz {
+namespace nanocc {
 
 Value *IRBuilder::createBinaryOp(Instruction::Opcode op, Value *lhs,
                                  Value *rhs) {
@@ -165,4 +165,4 @@ Instruction *IRBuilder::createCall(Value *func, std::vector<Value *> args) {
   return insert(std::move(inst));
 }
 
-} // namespace ldz
+} // namespace nanocc

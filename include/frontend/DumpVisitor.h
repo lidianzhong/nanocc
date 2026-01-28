@@ -5,7 +5,7 @@
 #include <fstream>
 #include <string>
 
-using namespace ldz;
+using namespace nanocc;
 
 class DumpVisitor : public ASTVisitor {
 public:

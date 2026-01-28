@@ -3,7 +3,7 @@
 #include "ir/Value.h"
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 
 class User : public Value {
 public:
@@ -36,4 +36,4 @@ protected:
   }
 };
 
-} // namespace ldz
+} // namespace nanocc

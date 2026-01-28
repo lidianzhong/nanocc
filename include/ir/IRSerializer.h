@@ -5,7 +5,7 @@
 
 #include <string>
 
-namespace ldz {
+namespace nanocc {
 
 namespace IRSerializer {
 
@@ -20,4 +20,4 @@ koopa_raw_program_t ToProgram(const Module &module);
 
 } // namespace IRSerializer
 
-} // namespace ldz
+} // namespace nanocc

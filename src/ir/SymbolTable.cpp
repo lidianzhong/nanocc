@@ -2,7 +2,7 @@
 #include "ir/ValueSymbolTable.h"
 #include <stdexcept>
 
-namespace ldz {
+namespace nanocc {
 
 void ValueSymbolTable::enterScope() { layers_.emplace_back(); }
 
@@ -40,4 +40,4 @@ Value *ValueSymbolTable::lookup(const std::string &name) const {
 
 bool ValueSymbolTable::isGlobal() const { return layers_.size() == 1; }
 
-} // namespace ldz
+} // namespace nanocc

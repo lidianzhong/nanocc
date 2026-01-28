@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 
 IRGenVisitor::IRGenVisitor(Module &module)
     : module_(module), builder_(new IRBuilder()),
@@ -887,4 +887,4 @@ Constant *IRGenVisitor::evalConstant(const InitVarAST *init, Type *ty) {
   return ConstantArray::get(arrTy, values);
 }
 
-} // namespace ldz
+} // namespace nanocc

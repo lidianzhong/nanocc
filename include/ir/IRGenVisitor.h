@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace ldz {
+namespace nanocc {
 
 class BaseAST;
 class BasicBlock;
@@ -120,4 +120,4 @@ private:
   Constant *evalConstant(const InitVarAST *init, Type *ty);
 };
 
-} // namespace ldz
+} // namespace nanocc

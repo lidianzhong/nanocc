@@ -13,7 +13,7 @@
 #include "parser.tab.hpp"
 
 using namespace std;
-using namespace ldz;
+using namespace nanocc;
 
 %}
 

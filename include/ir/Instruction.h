@@ -3,7 +3,7 @@
 #include "ir/User.h"
 #include <memory>
 
-namespace ldz {
+namespace nanocc {
 
 class BasicBlock;
 
@@ -71,4 +71,4 @@ private:
   BasicBlock *parent_;
 };
 
-} // namespace ldz
+} // namespace nanocc
