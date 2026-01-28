@@ -76,9 +76,6 @@ private:
   /// @todo Consider not using member variables to hold these states
   std::vector<BasicBlock *> continueTargets_;
 
-  // Track constant global variables for folding
-  std::unordered_set<GlobalVariable *> constGlobals_;
-
 private:
   void visitCompUnit_(const CompUnitAST *ast);
   void visitFuncDef_(const FuncDefAST *ast);

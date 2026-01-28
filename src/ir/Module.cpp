@@ -4,7 +4,7 @@
 #include "ir/GlobalVariable.h"
 #include "ir/Type.h"
 
-namespace ldz {
+namespace nanocc {
 
 Function *Module::getFunction(const std::string &name) const {
   auto *F = valSymTab_.lookup(name);
@@ -50,4 +50,4 @@ GlobalVariable *Module::getOrInsertGlobal(const std::string &name, Type *ty,
   return GV;
 }
 
-} // namespace ldz
+} // namespace nanocc

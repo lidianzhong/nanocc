@@ -80,7 +80,7 @@ public:
 
 private:
   std::string name_;
-  [[maybe_unused]] LinkageTypes linkage_;
+  LinkageTypes linkage_;
   std::list<BasicBlock *> basicBlockList_;
   std::vector<Argument *> arguments_;
 };

@@ -26,7 +26,8 @@ public:
   /// Insert a symbol into the current scope
   bool insert(const std::string &name, Value *val);
 
-  /// Lookup a symbol (searching from inner to outer scopes)
+  /// Lookup a symbol by name
+  /// @note Searches from the inner scope to the outer scope
   Value *lookup(const std::string &name) const;
 
   /// Check if currently in the global scope
