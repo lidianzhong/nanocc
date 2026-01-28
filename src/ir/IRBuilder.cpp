@@ -8,12 +8,6 @@
 
 namespace ldz {
 
-Instruction *IRBuilder::createUnaryOp(Instruction::Opcode op, Value *value) {
-  assert(false &&
-         "createUnaryOp is deprecated, use createBinaryOp with constant 0");
-  return nullptr;
-}
-
 Value *IRBuilder::createBinaryOp(Instruction::Opcode op, Value *lhs,
                                  Value *rhs) {
   if (auto *L = dynamic_cast<ConstantInt *>(lhs)) {

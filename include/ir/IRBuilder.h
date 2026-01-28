@@ -30,10 +30,6 @@ public:
   // Create instructions for Arithmetic & Logical Operations
   //
 
-  /// Create unary operation instruction
-  /// @deprecated use `createBinaryOp` with constant 0 instead
-  Instruction *createUnaryOp(Instruction::Opcode op, Value *value);
-
   /// Create binary operation instruction
   Value *createBinaryOp(Instruction::Opcode op, Value *lhs, Value *rhs);
 
