@@ -23,9 +23,11 @@ else()
   add_compile_options(-Wall -Wno-register)
 endif()
 
-# options about libraries and includes
-set(LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib" CACHE STRING "directory of libraries")
-set(INC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include" CACHE STRING "directory of includes")
+if(EMSCRIPTEN)
+  set(LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/koopa/lib/emscripten" CACHE STRING "directory of libraries" FORCE)
+else()
+  set(LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/koopa/lib/x86" CACHE STRING "directory of libraries" FORCE)
+endif()
 
 message(STATUS "Library directory: ${LIB_DIR}")
 message(STATUS "Include directory: ${INC_DIR}")
@@ -49,6 +51,7 @@ endif()
 link_directories(${LIB_DIR})
 
 # project include directories
+include_directories(third_party/koopa/include)
 include_directories(src)
 include_directories(include)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
@@ -62,10 +65,39 @@ file(GLOB_RECURSE H_SOURCES "src/*.h")
 set(SOURCES ${C_SOURCES} ${CXX_SOURCES} ${CC_SOURCES} ${H_SOURCES}
       ${FLEX_Lexer_OUTPUTS} ${BISON_Parser_OUTPUT_SOURCE})
 
-# executable
-add_executable(compiler ${SOURCES})
-set_target_properties(compiler PROPERTIES C_STANDARD 11 CXX_STANDARD 17)
-target_link_libraries(compiler koopa pthread dl)
+# Filter out main.cpp and wasm specific files from common sources
+list(FILTER SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX ".*wasm_.*\\.cpp$")
+
+if(EMSCRIPTEN)
+  add_executable(nanocc_wasm wasm/nanocc_wasm_entry.cpp ${SOURCES})
+  set_target_properties(nanocc_wasm PROPERTIES OUTPUT_NAME "nanocc" SUFFIX ".js")
+  target_link_libraries(nanocc_wasm koopa)
+  target_link_options(nanocc_wasm PRIVATE 
+    "-lembind" 
+    "-sMODULARIZE=1" 
+    "-sEXPORT_NAME='NanoccCompiler'"
+    "-sALLOW_MEMORY_GROWTH=1"
+    "-sEXIT_RUNTIME=0"
+  )
+
+  # Copy HTML and helper JS to output directory
+  add_custom_command(TARGET nanocc_wasm POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+      "${CMAKE_CURRENT_SOURCE_DIR}/wasm/main.html"
+      "${CMAKE_CURRENT_SOURCE_DIR}/wasm/miniriscv.js"
+      "${CMAKE_CURRENT_BINARY_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/wasm/examples"
+      "${CMAKE_CURRENT_BINARY_DIR}/examples"
+    COMMENT "Copying Wasm frontend resources and examples"
+  )
+else()
+  # executable
+  add_executable(compiler src/main.cpp ${SOURCES})
+  set_target_properties(compiler PROPERTIES C_STANDARD 11 CXX_STANDARD 17)
+  target_link_libraries(compiler koopa pthread dl)
+endif()
 
 # add clang-format target
 add_custom_target(format

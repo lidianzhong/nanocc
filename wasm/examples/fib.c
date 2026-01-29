@@ -1,0 +1,14 @@
+int main() {
+    int a = 0;
+    int b = 1;
+    int i = 0;
+    while(i < 10) {
+        int t = a + b;
+        a = b;
+        b = t;
+        i = i + 1;
+        putint(a);
+        putch(10);
+    }
+    return a;
+}
