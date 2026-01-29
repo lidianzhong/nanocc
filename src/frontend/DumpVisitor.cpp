@@ -1,8 +1,10 @@
-#include "frontend/DumpVisitor.h"
+#include "nanocc/frontend/DumpVisitor.h"
 
 #include <iostream>
 
-#include "frontend/AST.h"
+#include "nanocc/frontend/AST.h"
+
+namespace nanocc {
 
 DumpVisitor::DumpVisitor(const std::string &filename) : out_file(filename) {
   if (!out_file.is_open()) {
@@ -250,3 +252,5 @@ void DumpVisitor::Visit(FuncCallAST &node) {
       arg->Accept(*this);
   }
 }
+
+} // namespace nanocc

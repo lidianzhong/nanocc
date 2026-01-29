@@ -1,8 +1,8 @@
 
-#include "ir/Module.h"
-#include "ir/Function.h"
-#include "ir/GlobalVariable.h"
-#include "ir/Type.h"
+#include "nanocc/ir/Module.h"
+#include "nanocc/ir/Function.h"
+#include "nanocc/ir/GlobalVariable.h"
+#include "nanocc/ir/Type.h"
 
 namespace nanocc {
 

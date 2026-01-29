@@ -1,12 +1,12 @@
-#include "ir/IRSerializer.h"
-#include "ir/BasicBlock.h"
-#include "ir/Constant.h"
-#include "ir/Function.h"
-#include "ir/GlobalVariable.h"
-#include "ir/Instruction.h"
-#include "ir/Module.h"
-#include "ir/Type.h"
-#include "ir/Value.h"
+#include "nanocc/ir/IRSerializer.h"
+#include "nanocc/ir/BasicBlock.h"
+#include "nanocc/ir/Constant.h"
+#include "nanocc/ir/Function.h"
+#include "nanocc/ir/GlobalVariable.h"
+#include "nanocc/ir/Instruction.h"
+#include "nanocc/ir/Module.h"
+#include "nanocc/ir/Type.h"
+#include "nanocc/ir/Value.h"
 
 #include <cassert>
 #include <iostream>

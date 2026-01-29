@@ -1,5 +1,5 @@
 
-#include "ir/ValueSymbolTable.h"
+#include "nanocc/ir/ValueSymbolTable.h"
 #include <stdexcept>
 
 namespace nanocc {

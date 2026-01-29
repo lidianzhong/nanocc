@@ -1,5 +1,5 @@
-#include "ir/Function.h"
-#include "ir/Module.h"
+#include "nanocc/ir/Function.h"
+#include "nanocc/ir/Module.h"
 
 namespace nanocc {
 

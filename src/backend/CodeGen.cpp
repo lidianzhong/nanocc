@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <iostream>
 
-#include "backend/CodeGen.h"
+#include "nanocc/backend/CodeGen.h"
 
 #include "koopa.h"
 

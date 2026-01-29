@@ -1,5 +1,5 @@
-#include "ir/Constant.h"
-#include "ir/Type.h"
+#include "nanocc/ir/Constant.h"
+#include "nanocc/ir/Type.h"
 
 namespace nanocc {
 

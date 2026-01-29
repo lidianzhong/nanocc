@@ -1,9 +1,9 @@
-#include "backend/CodeGen.h"
-#include "frontend/AST.h"
-#include "frontend/DumpVisitor.h"
-#include "ir/IRGenVisitor.h"
-#include "ir/IRSerializer.h"
-#include "ir/Module.h"
+#include "nanocc/backend/CodeGen.h"
+#include "nanocc/frontend/AST.h"
+#include "nanocc/frontend/DumpVisitor.h"
+#include "nanocc/ir/IRGenVisitor.h"
+#include "nanocc/ir/IRSerializer.h"
+#include "nanocc/ir/Module.h"
 
 #include <cassert>
 #include <cstdio>

@@ -1,8 +1,8 @@
-#include "ir/IRBuilder.h"
-#include "ir/Constant.h"
-#include "ir/Instruction.h"
-#include "ir/Type.h"
-#include "ir/Value.h"
+#include "nanocc/ir/IRBuilder.h"
+#include "nanocc/ir/Constant.h"
+#include "nanocc/ir/Instruction.h"
+#include "nanocc/ir/Type.h"
+#include "nanocc/ir/Value.h"
 #include <cassert>
 #include <utility>
 

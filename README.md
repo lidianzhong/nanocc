@@ -1,1 +1,1 @@
-# SysY Compiler
+# Nano C Compiler
